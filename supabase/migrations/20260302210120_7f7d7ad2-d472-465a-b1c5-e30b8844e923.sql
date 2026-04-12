@@ -45,7 +45,7 @@ INSERT INTO public.roadmap_items (title, description, status, icon, version, sor
 ('Sistema de Planos', 'Planos Grátis, Profissional e Empresarial com Stripe', 'done', 'CreditCard', 'v1.1', 6),
 ('Agendamento Automático', 'Clientes podem marcar horários diretamente pelo WhatsApp com a IA', 'in-progress', 'CalendarDays', 'v1.2', 7),
 ('Lembretes Automáticos', 'Envio de lembretes antes dos agendamentos para reduzir faltas', 'in-progress', 'Bell', 'v1.2', 8),
-('Múltiplos Atendentes', 'Convide membros da equipe para atender conversas juntos', 'in-progress', 'Users', 'v1.3', 9),
+('Múltiplos Atendentes', 'Convide membros da equipe para atender conversas juntos', 'done', 'Users', 'v1.3', 9),
 ('Fluxos de Automação', 'Crie fluxos personalizados com condições, ações e gatilhos', 'planned', 'Zap', NULL, 10),
 ('Catálogo de Produtos', 'Integre seu catálogo e permita que a IA apresente produtos com imagens', 'planned', 'Globe', NULL, 11),
 ('Relatórios Avançados', 'Exportação de relatórios, análise de sentimento e insights detalhados', 'planned', 'BarChart3', NULL, 12),
