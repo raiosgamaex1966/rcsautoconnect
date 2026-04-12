@@ -1,0 +1,1 @@
+ALTER TABLE public.ai_settings ADD COLUMN ai_enabled boolean NOT NULL DEFAULT true;
