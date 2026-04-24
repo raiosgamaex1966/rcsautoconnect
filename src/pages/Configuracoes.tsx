@@ -218,6 +218,7 @@ export default function Configuracoes() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="gpt-4o-mini">GPT-4o Mini (Rápido e econômico)</SelectItem>
+                        <SelectItem value="gpt-4o">GPT-4o (Visão + Áudio - Recomendado)</SelectItem>
                         <SelectItem value="gpt-5">GPT-5 (Mais poderoso)</SelectItem>
                         <SelectItem value="gpt-5-mini">GPT-5 Mini (Equilíbrio custo/qualidade)</SelectItem>
                         <SelectItem value="gpt-5-nano">GPT-5 Nano (Ultra rápido e barato)</SelectItem>
@@ -228,6 +229,39 @@ export default function Configuracoes() {
                       </SelectContent>
                     </Select>
                   </div>
+
+                  <div className="pt-2 space-y-3">
+                    <div className="flex items-start sm:items-center justify-between gap-3 p-2 rounded-lg bg-secondary/20 border border-border">
+                      <div className="min-w-0">
+                        <p className="font-medium text-xs sm:text-sm flex items-center gap-2">
+                          <Eye className="h-3.5 w-3.5 text-primary" /> Entendimento de Imagem
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Permite que a IA analise imagens enviadas pelo WhatsApp.
+                        </p>
+                      </div>
+                      <Switch 
+                        checked={ai.image_understanding_enabled} 
+                        onCheckedChange={(v) => updateAI({ image_understanding_enabled: v })} 
+                      />
+                    </div>
+
+                    <div className="flex items-start sm:items-center justify-between gap-3 p-2 rounded-lg bg-secondary/20 border border-border">
+                      <div className="min-w-0">
+                        <p className="font-medium text-xs sm:text-sm flex items-center gap-2">
+                          <MessageCircle className="h-3.5 w-3.5 text-primary" /> Transcrição de Áudio
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Permite que a IA ouça e transcreva áudios enviados.
+                        </p>
+                      </div>
+                      <Switch 
+                        checked={ai.audio_transcription_enabled} 
+                        onCheckedChange={(v) => updateAI({ audio_transcription_enabled: v })} 
+                      />
+                    </div>
+                  </div>
+
                   {!ai.openai_api_key && (
                     <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-2 sm:p-3 text-xs sm:text-sm flex gap-2">
                       <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />

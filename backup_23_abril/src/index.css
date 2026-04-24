@@ -1,0 +1,157 @@
+/* Disable all transitions and animations for instant feel */
+* {
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
+
+/* Stop spinners from spinning and just hide them or make them static */
+.animate-spin {
+  animation: none !important;
+  display: none !important;
+}
+
+#lovable-badge {
+  display: none !important;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 210 20% 10%;
+
+    --card: 0 0% 98%;
+    --card-foreground: 210 20% 10%;
+
+    --popover: 0 0% 98%;
+    --popover-foreground: 210 20% 10%;
+
+    --primary: 145 63% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 10% 94%;
+    --secondary-foreground: 210 20% 20%;
+
+    --muted: 210 10% 94%;
+    --muted-foreground: 210 10% 45%;
+
+    --accent: 145 63% 42%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 10% 88%;
+    --input: 210 10% 88%;
+    --ring: 145 63% 42%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 97%;
+    --sidebar-foreground: 210 20% 20%;
+    --sidebar-primary: 145 63% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 145 63% 92%;
+    --sidebar-accent-foreground: 210 20% 15%;
+    --sidebar-border: 210 10% 90%;
+    --sidebar-ring: 145 63% 42%;
+
+    --success: 145 63% 42%;
+    --warning: 45 93% 47%;
+    --info: 210 100% 52%;
+  }
+
+  .dark {
+    --background: 210 20% 10%;
+    --foreground: 150 10% 90%;
+
+    --card: 210 25% 12%;
+    --card-foreground: 150 10% 90%;
+
+    --popover: 210 25% 12%;
+    --popover-foreground: 150 10% 90%;
+
+    --primary: 145 63% 42%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 20% 16%;
+    --secondary-foreground: 150 10% 90%;
+
+    --muted: 210 20% 16%;
+    --muted-foreground: 210 10% 55%;
+
+    --accent: 145 63% 42%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 210 20% 18%;
+    --input: 210 20% 18%;
+    --ring: 145 63% 42%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 210 25% 8%;
+    --sidebar-foreground: 150 10% 85%;
+    --sidebar-primary: 145 63% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 145 63% 20%;
+    --sidebar-accent-foreground: 150 10% 95%;
+    --sidebar-border: 210 20% 15%;
+    --sidebar-ring: 145 63% 42%;
+
+    --success: 145 63% 42%;
+    --warning: 45 93% 47%;
+    --info: 210 100% 52%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* Sidebar collapse - hide text labels in icon mode */
+[data-collapsible="icon"]
+  [data-sidebar="sidebar"]
+  [data-sidebar="menu-button"]
+  > span {
+  @apply hidden;
+}
+
+[data-collapsible="icon"]
+  [data-sidebar="sidebar"]
+  [data-sidebar="group-label"] {
+  @apply hidden;
+}

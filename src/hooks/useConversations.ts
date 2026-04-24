@@ -129,6 +129,20 @@ export function useMessages(conversationId: string | null) {
   const [loading, setLoading] = useState(false);
   const isFetchingRef = useRef(false);
 
+  // Sync state with cache when conversationId changes
+  useEffect(() => {
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    const cached = localStorage.getItem(`zapmax_messages_${conversationId}`);
+    if (cached) {
+      setMessages(JSON.parse(cached));
+    } else {
+      setMessages([]);
+    }
+  }, [conversationId]);
+
   const fetchMessages = useCallback(async ({ background = false }: RefreshOptions = {}) => {
     if (!conversationId) {
       setMessages([]);
@@ -149,11 +163,13 @@ export function useMessages(conversationId: string | null) {
       if (error) {
         console.error("Error fetching messages:", error);
       } else if (data?.success) {
-        setMessages(data.data || []);
+        const messageList = data.data || [];
+        setMessages(messageList);
         if (conversationId) {
-          localStorage.setItem(`zapmax_messages_${conversationId}`, JSON.stringify(data.data || []));
+          localStorage.setItem(`zapmax_messages_${conversationId}`, JSON.stringify(messageList));
         }
       }
+
     } catch (error) {
       console.error("Unexpected error fetching messages:", error);
     } finally {
@@ -170,18 +186,26 @@ export function useMessages(conversationId: string | null) {
     const channel = supabase
       .channel(`messages-${conversationId}`)
       .on("postgres_changes", {
-        event: "INSERT", schema: "public", table: "messages",
+        event: "*", schema: "public", table: "messages",
         filter: `conversation_id=eq.${conversationId}`,
       }, (payload) => {
-        setMessages((prev) => {
-          const incoming = payload.new as Message;
-          if (prev.some((m) => m.id === incoming.id)) return prev;
-          return [...prev, incoming];
-        });
+        if (payload.eventType === "INSERT") {
+          setMessages((prev) => {
+            const incoming = payload.new as Message;
+            if (prev.some((m) => m.id === incoming.id)) return prev;
+            return [...prev, incoming];
+          });
+        } else if (payload.eventType === "UPDATE") {
+          setMessages((prev) => {
+            const updated = payload.new as Message;
+            return prev.map((m) => m.id === updated.id ? updated : m);
+          });
+        }
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [conversationId]);
+
 
   // Polling fallback
   useEffect(() => {

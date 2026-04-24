@@ -70,6 +70,9 @@ export default function Dashboard() {
       });
       if (!error && data?.success) {
         setSetupDone(data.data);
+      } else {
+        console.error("Setup check error:", error, data);
+        if (data?.error) toast.error("Setup Check Error: " + data.error);
       }
     };
     checkSetup();

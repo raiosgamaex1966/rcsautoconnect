@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, MessageCircle, Send, Bot, Phone, ArrowLeft, Loader2, Bell,
   Filter, XCircle, CheckCircle2, Clock, Sparkles, Copy, Check, Trash2,
-  CalendarDays, RefreshCw, X, ArrowRightLeft, Zap,
+  CalendarDays, RefreshCw, X, ArrowRightLeft, Zap, FileText, Play, Image as ImageIcon, Video,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -56,9 +56,100 @@ function ChatBubble({ message }: { message: Message }) {
             )}
           </div>
         )}
-        <p className="text-sm whitespace-pre-line">{message.content}</p>
-        <div className={`flex items-center gap-1 mt-1 ${isInbound ? "justify-start" : "justify-end"}`}>
-          <span className="text-[10px] text-muted-foreground">{formatTime(message.sent_at)}</span>
+        
+        {/* ── Image ── */}
+        {message.media_type === "image" && message.media_url && (
+          <div className="mb-2 overflow-hidden rounded-lg border border-border/50 bg-background/50">
+            <img
+              src={message.media_url}
+              alt="Imagem"
+              className="max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => window.open(message.media_url!, "_blank")}
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+        )}
+
+        {/* ── Audio ── */}
+        {message.media_type === "audio" && message.media_url && (
+          <div className="mb-2 p-2.5 rounded-xl bg-background/50 border border-border/40">
+            <div className="flex items-center gap-2 mb-1.5">
+              <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center">
+                <Play className="h-3 w-3 text-primary" />
+              </div>
+              <span className="text-[11px] font-semibold text-primary/80 uppercase tracking-wide">Áudio</span>
+            </div>
+            <audio
+              controls
+              preload="metadata"
+              className="w-full"
+              style={{ height: 36 }}
+            >
+              <source src={message.media_url} type="audio/ogg" />
+              <source src={message.media_url} type="audio/mpeg" />
+              <source src={message.media_url} type="audio/mp4" />
+              Seu navegador não suporta áudio.
+            </audio>
+          </div>
+        )}
+
+        {/* ── Video ── */}
+        {message.media_type === "video" && message.media_url && (
+          <div className="mb-2 overflow-hidden rounded-lg border border-border/50 bg-background/50">
+            <video src={message.media_url} controls className="max-w-full h-auto" />
+          </div>
+        )}
+
+        {/* ── Sticker ── */}
+        {message.media_type === "sticker" && message.media_url && (
+          <div className="mb-2">
+            <img
+              src={message.media_url}
+              alt="Sticker"
+              className="max-w-[160px] h-auto"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+            />
+          </div>
+        )}
+
+        {/* ── Document ── */}
+        {message.media_type === "document" && message.media_url && (
+          <a
+            href={message.media_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-3 p-3 mb-2 rounded-lg bg-background/50 border border-border/50 hover:bg-background/80 transition-colors group"
+          >
+            <div className="h-8 w-8 rounded bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+              <FileText className="h-5 w-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium truncate">Documento</p>
+              <p className="text-[10px] text-muted-foreground">Clique para baixar</p>
+            </div>
+          </a>
+        )}
+
+        {/* Message text — skip the raw "[audio]" placeholder if transcription exists */}
+        {(() => {
+          const isMediaPlaceholder = message.content && /^\[.+\]$/.test(message.content.trim());
+          const hasTranscription = message.content?.startsWith("[Áudio transcrito:");
+          if (hasTranscription) {
+            // Show transcription text nicely
+            const text = message.content.replace(/^\[Áudio transcrito:\s*/, "").replace(/\]$/, "");
+            return (
+              <div className="mt-1">
+                <p className="text-[10px] text-muted-foreground italic mb-0.5">Transcrição:</p>
+                <p className="text-sm whitespace-pre-line leading-relaxed">{text}</p>
+              </div>
+            );
+          }
+          if (message.media_type && isMediaPlaceholder) return null;
+          return <p className="text-sm whitespace-pre-line leading-relaxed">{message.content}</p>;
+        })()}
+
+        <div className={`flex items-center gap-1 mt-1.5 ${isInbound ? "justify-start" : "justify-end"}`}>
+          <span className="text-[10px] opacity-60 font-medium">{formatTime(message.sent_at)}</span>
         </div>
       </div>
     </motion.div>
@@ -217,7 +308,24 @@ export default function Conversas() {
   }, [conversations]);
 
   // Clear AI suggestion when switching conversations
-  useEffect(() => { setAiSuggestion(""); }, [selectedId]);
+  useEffect(() => { 
+    setAiSuggestion(""); 
+    if (selectedId) {
+      localStorage.setItem("zapmax_last_conv_id", selectedId);
+      setSearchParams(prev => {
+        prev.set("id", selectedId);
+        return prev;
+      }, { replace: true });
+    }
+  }, [selectedId]);
+
+  // Restore last selected conversation
+  useEffect(() => {
+    if (!selectedId && !searchParams.get("id")) {
+      const lastId = localStorage.getItem("zapmax_last_conv_id");
+      if (lastId) setSelectedId(lastId);
+    }
+  }, []);
 
   // Fetch schedules for selected contact
   useEffect(() => {

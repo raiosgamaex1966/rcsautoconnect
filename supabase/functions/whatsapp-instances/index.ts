@@ -11,6 +11,13 @@ async function getAuthenticatedUser(req: Request) {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || Deno.env.get("SUPABASE_PUBLISHABLE_KEY")!;
+  
+  // LOG: Check if SERVICE_ROLE_KEY is valid JWT (doing it here to have access to env)
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  if (serviceRoleKey && serviceRoleKey.startsWith("sbp_")) {
+    console.error("CRITICAL: SUPABASE_SERVICE_ROLE_KEY is a Personal Access Token (sbp_...), NOT a service_role secret. Database operations will FAIL.");
+  }
+
   const userClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authHeader } },
   });
@@ -20,6 +27,7 @@ async function getAuthenticatedUser(req: Request) {
 
   return { userId: user.id, client: userClient };
 }
+
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -118,8 +126,6 @@ Deno.serve(async (req) => {
     const actionsThatRequireActivePlan = new Set([
       "create",
       "connect",
-      "disconnect",
-      "delete",
       "send-message",
       "set-webhook",
       "update-settings",
@@ -444,9 +450,16 @@ Deno.serve(async (req) => {
       const evolutionKey = Deno.env.get("EVOLUTION_API_KEY");
 
       if (evolutionUrl && evolutionKey && inst.evolution_instance_id) {
-        await fetch(`${evolutionUrl}/instance/logout/${inst.evolution_instance_id}`, {
-          method: "DELETE", headers: { "apikey": evolutionKey },
-        });
+        try {
+          const evoRes = await fetch(`${evolutionUrl}/instance/logout/${inst.evolution_instance_id}`, {
+            method: "DELETE", headers: { "apikey": evolutionKey },
+          });
+          if (!evoRes.ok) {
+            console.error("Evolution API logout failed:", evoRes.status, await evoRes.text());
+          }
+        } catch (e) {
+          console.error("Evolution API fetch error during logout:", e);
+        }
       }
 
       await adminClient.from("whatsapp_instances").update({

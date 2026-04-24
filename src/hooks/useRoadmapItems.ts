@@ -30,6 +30,9 @@ export function useRoadmapItems() {
       if (!error && data?.success && data.data) {
         setItems(data.data as RoadmapItem[]);
         localStorage.setItem("zapmax_roadmap_items", JSON.stringify(data.data));
+      } else {
+        console.error("Roadmap fetch error:", error, data);
+        import("sonner").then(({ toast }) => toast.error("Roadmap Error: " + data?.error));
       }
     } catch (e) {
       console.error("Failed to fetch roadmap items:", e);

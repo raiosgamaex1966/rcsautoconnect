@@ -16,6 +16,8 @@ export interface AISettings {
   business_hours: string;
   openai_api_key: string;
   openai_model: string;
+  image_understanding_enabled: boolean;
+  audio_transcription_enabled: boolean;
 }
 
 const defaults: AISettings = {
@@ -31,7 +33,9 @@ const defaults: AISettings = {
   business_type: "",
   business_hours: "",
   openai_api_key: "",
-  openai_model: "gpt-4o-mini",
+  openai_model: "gpt-4o",
+  image_understanding_enabled: false,
+  audio_transcription_enabled: false,
 };
 
 export function useAISettings() {
@@ -67,6 +71,8 @@ export function useAISettings() {
           business_hours: d.business_hours || "",
           openai_api_key: d.openai_api_key || "",
           openai_model: d.openai_model || defaults.openai_model,
+          image_understanding_enabled: d.image_understanding_enabled ?? false,
+          audio_transcription_enabled: d.audio_transcription_enabled ?? false,
         };
         setSettings(newSettings);
         localStorage.setItem("zapmax_ai_settings", JSON.stringify(newSettings));
@@ -81,17 +87,62 @@ export function useAISettings() {
   }, []);
 
   const save = useCallback(async (overrides?: Partial<AISettings>) => {
+    if (!user) return false;
     setSaving(true);
-    const finalSettings = overrides ? { ...settings, ...overrides } : settings;
-    const { data, error } = await supabase.functions.invoke("data-api", {
-      body: { _action: "ai-settings-upsert", ...finalSettings },
-    });
-    if (!error && data?.success) {
+    try {
+      const { data: tenantData } = await supabase.rpc("get_user_tenant_id", { _user_id: user.id });
+      const tenantId = tenantData;
+      
+      if (!tenantId) {
+        console.error("No tenant found for user");
+        return false;
+      }
+
+      const finalSettings = overrides ? { ...settings, ...overrides } : settings;
+      
+      // Sanitize settings for DB
+      const dbSettings: any = { 
+        tenant_id: tenantId,
+        ai_enabled: finalSettings.ai_enabled,
+        focus_mode: finalSettings.focus_mode,
+        tone: finalSettings.tone,
+        general_instructions: finalSettings.general_instructions,
+        formatting_style: finalSettings.formatting_style,
+        greeting: finalSettings.greeting,
+        farewell: finalSettings.farewell,
+        forbidden_responses: finalSettings.forbidden_responses,
+        human_trigger_words: finalSettings.human_trigger_words,
+        business_type: finalSettings.business_type,
+        business_hours: finalSettings.business_hours,
+        openai_model: finalSettings.openai_model,
+        image_understanding_enabled: finalSettings.image_understanding_enabled,
+        audio_transcription_enabled: finalSettings.audio_transcription_enabled,
+      };
+
+      // Only include API key if it's not the masked placeholder
+      if (finalSettings.openai_api_key && !finalSettings.openai_api_key.startsWith("sk-...")) {
+        dbSettings.openai_api_key = finalSettings.openai_api_key;
+      }
+
+      const { error } = await supabase
+        .from("ai_settings")
+        .upsert(dbSettings, { onConflict: "tenant_id" });
+
+      if (error) {
+        console.error("Error saving AI settings to DB:", error);
+        return false;
+      }
+
       localStorage.setItem("zapmax_ai_settings", JSON.stringify(finalSettings));
+      return true;
+    } catch (err) {
+      console.error("Exception saving AI settings:", err);
+      return false;
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    return !error && data?.success;
   }, [settings]);
+
 
   return { settings, update, save, loading, saving };
 }

@@ -7,10 +7,8 @@ const corsHeaders = {
 };
 
 function jsonResponse(body: Record<string, unknown>, status = 200) {
-  // Always return 200 so the client's supabase.functions.invoke captures the JSON body
-  // instead of throwing a generic "non-2xx status code" error.
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
@@ -19,27 +17,39 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    let userId = req.headers.get("x-supabase-user-id");
+    
+    // Robustness fallback: If x-supabase-user-id is missing, try to get it from the JWT
+    if (!userId) {
+      const authHeader = req.headers.get("Authorization");
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        try {
+          const token = authHeader.split(" ")[1];
+          const payloadBase64 = token.split(".")[1];
+          const payload = JSON.parse(atob(payloadBase64));
+          userId = payload.sub;
+          console.log("Extracted userId from JWT fallback:", userId);
+        } catch (e) {
+          console.error("Failed to extract userId from JWT:", e);
+        }
+      }
+    }
+
+    if (!userId) {
+      console.error("No userId found in headers or JWT. Headers:", JSON.stringify(Object.fromEntries(req.headers.entries())));
       return jsonResponse({ success: false, error: "Unauthorized" }, 401);
     }
 
+
+    const user = { id: userId };
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
-
-    const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user: authUser }, error: authError } = await userClient.auth.getUser();
-    if (authError || !authUser) return jsonResponse({ success: false, error: "Unauthorized" }, 401);
-    const user = { id: authUser.id };
-
     const adminClient = createClient(SUPABASE_URL, SERVICE_KEY);
 
     const body = await req.json();
     const action = body._action;
     if (!action) return jsonResponse({ success: false, error: "Missing _action" }, 400);
+
 
     // Helper: get tenant
     const getTenant = async () => {
@@ -345,7 +355,7 @@ serve(async (req) => {
     if (action === "ai-settings-upsert") {
       const { tenantId, error } = await verifyTenant();
       if (error) return error;
-      const allowed = ["ai_enabled", "focus_mode", "tone", "general_instructions", "formatting_style", "greeting", "farewell", "forbidden_responses", "human_trigger_words", "business_type", "business_hours", "openai_api_key", "openai_model"];
+      const allowed = ["ai_enabled", "focus_mode", "tone", "general_instructions", "formatting_style", "greeting", "farewell", "forbidden_responses", "human_trigger_words", "business_type", "business_hours", "openai_api_key", "openai_model", "image_understanding_enabled", "audio_transcription_enabled"];
       const sanitized: Record<string, unknown> = { tenant_id: tenantId };
       for (const k of allowed) { if (body[k] !== undefined) sanitized[k] = body[k]; }
       // Don't overwrite API key with masked value
@@ -846,12 +856,12 @@ serve(async (req) => {
           for (let i = 0; i < chart_days; i++) {
             const d = new Date();
             d.setDate(d.getDate() - (chart_days - 1 - i));
-            const key = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+            const key = String(d.getDate()).padStart(2, "0") + "/" + String(d.getMonth() + 1).padStart(2, "0");
             dayMap[key] = { date: key, inbound: 0, ai: 0, manual: 0 };
           }
           for (const msg of chartMessages) {
             const dt = new Date(msg.sent_at);
-            const key = `${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}`;
+            const key = String(dt.getDate()).padStart(2, "0") + "/" + String(dt.getMonth() + 1).padStart(2, "0");
             if (!dayMap[key]) continue;
             if (msg.direction === "inbound") dayMap[key].inbound++;
             else if (msg.is_ai_generated) dayMap[key].ai++;

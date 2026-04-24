@@ -409,6 +409,7 @@ export default function Agendamentos() {
                           <p className="text-sm font-medium truncate">{s.title}</p>
                           <p className="text-xs text-muted-foreground">
                             {formatScheduleTime(s.scheduled_at, "short")} • {s.duration_minutes || 30}min
+                            {s.contact?.name && ` • ${s.contact.name}${s.contact.phone ? ` (${s.contact.phone})` : ""}`}
                           </p>
                         </div>
                         <Badge variant={s.status === "confirmed" ? "default" : "outline"} className="text-[10px] capitalize shrink-0">
@@ -501,7 +502,7 @@ export default function Agendamentos() {
                                   <p className="text-sm font-medium truncate">{s.title}</p>
                                   <p className="text-xs text-muted-foreground">
                                     {formatScheduleTime(s.scheduled_at, "time")} • {s.duration_minutes || 30}min
-                                    {s.contact?.name && ` • ${s.contact.name}`}
+                                    {s.contact?.name && ` • ${s.contact.name}${s.contact.phone ? ` (${s.contact.phone})` : ""}`}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
