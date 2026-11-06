@@ -232,16 +232,84 @@ Deno.serve(async (req) => {
     // DELETE
     if (action === "delete") {
       const { instance_id } = body;
-      const { data: inst } = await adminClient.from("whatsapp_instances").select("*").eq("id", instance_id).single();
-      if (inst) {
-        const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
-        const evolutionKey = Deno.env.get("EVOLUTION_API_KEY");
-        try {
-          await fetch(`${evolutionUrl}/instance/delete/${inst.evolution_instance_id}`, { method: "DELETE", headers: { "apikey": evolutionKey } });
-        } catch (e) {}
-        await adminClient.from("whatsapp_instances").delete().eq("id", instance_id);
+      if (!instance_id) {
+        return jsonResponse({ success: false, error: "ID da instância não informado" }, 400);
       }
-      return jsonResponse({ success: true });
+
+      console.log(`[DELETE] Starting deletion for instance_id: ${instance_id}, tenant: ${tenantId}`);
+
+      const { data: inst, error: fetchErr } = await adminClient
+        .from("whatsapp_instances")
+        .select("*")
+        .eq("id", instance_id)
+        .maybeSingle();
+
+      if (fetchErr) {
+        console.error("[DELETE] Error fetching instance:", fetchErr);
+      }
+
+      if (!inst) {
+        const { error: userDelErr } = await auth.client
+          .from("whatsapp_instances")
+          .delete()
+          .eq("id", instance_id);
+
+        if (userDelErr) {
+          console.error("[DELETE] userClient delete error:", userDelErr);
+          return jsonResponse({ success: false, error: "Instância não encontrada" }, 404);
+        }
+        return jsonResponse({ success: true });
+      }
+
+      if (!isAdmin && inst.tenant_id !== tenantId) {
+        return jsonResponse({ success: false, error: "Acesso negado: instância não pertence ao seu tenant" }, 403);
+      }
+
+      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+      const evolutionKey = Deno.env.get("EVOLUTION_API_KEY");
+      if (evolutionUrl && evolutionKey && inst.evolution_instance_id) {
+        try {
+          console.log(`[DELETE] Deleting from Evolution: ${evolutionUrl}/instance/delete/${inst.evolution_instance_id}`);
+          await fetch(`${evolutionUrl}/instance/delete/${inst.evolution_instance_id}`, {
+            method: "DELETE",
+            headers: { "apikey": evolutionKey }
+          });
+        } catch (e) {
+          console.warn("[DELETE] Evolution API error (proceeding with DB delete):", e);
+        }
+      }
+
+      try {
+        await adminClient.from("instance_settings").delete().eq("instance_id", instance_id);
+      } catch (e) {
+        console.warn("[DELETE] instance_settings unlink warning:", e);
+      }
+
+      try {
+        await adminClient.from("conversations").update({ instance_id: null }).eq("instance_id", instance_id);
+      } catch (e) {
+        console.warn("[DELETE] conversations unlink warning:", e);
+      }
+
+      const { error: delErr } = await adminClient
+        .from("whatsapp_instances")
+        .delete()
+        .eq("id", instance_id);
+
+      if (delErr) {
+        console.error("[DELETE] Database delete error with adminClient:", delErr);
+        const { error: fallbackErr } = await auth.client
+          .from("whatsapp_instances")
+          .delete()
+          .eq("id", instance_id);
+
+        if (fallbackErr) {
+          return jsonResponse({ success: false, error: `Erro no banco ao excluir: ${delErr.message}` }, 500);
+        }
+      }
+
+      console.log(`[DELETE] Instance ${instance_id} deleted successfully`);
+      return jsonResponse({ success: true, message: "Instância excluída com sucesso" });
     }
 
     // SEND MESSAGE

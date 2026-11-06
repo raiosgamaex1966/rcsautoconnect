@@ -11,7 +11,7 @@
 # Se fosse true, o Supabase exigiria token do Supabase Auth antes de executar.
 # =============================================
 
-project_id = "ldsbmiwfkrvsgpmgcgfv"
+project_id = "pqantnebpappnanvuluu"
 
 [functions.onboarding]
 verify_jwt = false

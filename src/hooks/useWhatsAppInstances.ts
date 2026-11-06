@@ -108,6 +108,11 @@ export function useWhatsAppInstances() {
   }, [fetchInstances]);
 
   const deleteInstance = useCallback(async (instanceId: string) => {
+    setInstances(prev => {
+      const updated = prev.filter(i => i.id !== instanceId);
+      localStorage.setItem("rcs_whatsapp_instances", JSON.stringify(updated));
+      return updated;
+    });
     const { data, error } = await supabase.functions.invoke("whatsapp-instances", {
       body: { _action: "delete", instance_id: instanceId },
     });
