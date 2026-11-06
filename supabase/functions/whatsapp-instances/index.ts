@@ -280,15 +280,11 @@ Deno.serve(async (req) => {
       }
 
       try {
+        await adminClient.from("conversation_transfers").delete().or(`from_instance_id.eq.${instance_id},to_instance_id.eq.${instance_id}`);
+        await adminClient.from("conversations").delete().eq("instance_id", instance_id);
         await adminClient.from("instance_settings").delete().eq("instance_id", instance_id);
       } catch (e) {
-        console.warn("[DELETE] instance_settings unlink warning:", e);
-      }
-
-      try {
-        await adminClient.from("conversations").update({ instance_id: null }).eq("instance_id", instance_id);
-      } catch (e) {
-        console.warn("[DELETE] conversations unlink warning:", e);
+        console.warn("[DELETE] dependencies deletion warning:", e);
       }
 
       const { error: delErr } = await adminClient

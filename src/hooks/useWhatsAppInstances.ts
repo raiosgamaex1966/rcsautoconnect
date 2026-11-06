@@ -114,8 +114,9 @@ export function useWhatsAppInstances() {
         body: { _action: "delete", instance_id: instanceId },
       }).catch(e => console.warn("Edge function delete call:", e));
 
-      // 2. Desvincula dependências no Supabase para não travar por Foreign Key
-      await supabase.from("conversations").update({ instance_id: null }).eq("instance_id", instanceId);
+      // 2. Remove conversas e dependências vinculadas para evitar violação de unique constraint (idx_conversations_unique_no_instance)
+      await supabase.from("conversation_transfers").delete().or(`from_instance_id.eq.${instanceId},to_instance_id.eq.${instanceId}`);
+      await supabase.from("conversations").delete().eq("instance_id", instanceId);
       await supabase.from("instance_settings").delete().eq("instance_id", instanceId);
 
       // 3. Deleta a instância diretamente da tabela no Supabase
