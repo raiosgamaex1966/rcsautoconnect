@@ -249,6 +249,8 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       sys += "\n\nNOSSOS SERVIÇOS E PREÇOS:\n" + services.map((s: any) => 
         `- ${s.name}: ${s.description || ""} (${s.duration_minutes}min) - R$ ${(s.price_cents / 100).toFixed(2).replace(".", ",")}`
       ).join("\n");
+    } else {
+      sys += "\n\nNOSSOS SERVIÇOS: Atendimento Geral (Duração: 30 minutos).\n";
     }
 
     if (businessHours?.length) {
@@ -256,6 +258,10 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       sys += "\n\nHORÁRIO DE ATENDIMENTO/FUNCIONAMENTO:\n" + businessHours.map((b: any) => 
         `- ${days[b.day_of_week] || "Dia " + b.day_of_week}: ${b.is_open ? `${b.open_time} às ${b.close_time}` : "Fechado"}`
       ).join("\n");
+    } else if (ai.business_hours) {
+      sys += `\n\nHORÁRIO DE ATENDIMENTO/FUNCIONAMENTO:\n- Horário comercial: ${ai.business_hours} (Segunda a Sexta)\n`;
+    } else {
+      sys += `\n\nHORÁRIO DE ATENDIMENTO/FUNCIONAMENTO:\n- De Segunda a Sexta das 08:00 às 18:00\n`;
     }
 
     if (blockedDates?.length) {
@@ -276,7 +282,7 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
         sys += `- ${dateStr} das ${startStr} às ${endStr} (OCUPADO)\n`;
       });
     } else {
-      sys += "\n\nAGENDA ATUAL: Todos os horários normais de atendimento estão livres.\n";
+      sys += "\n\nHORÁRIOS JÁ AGENDADOS E OCUPADOS: Nenhum! Todos os horários normais de atendimento estão 100% LIVRES.\n";
     }
 
     // 2. Get History (protect against nulls)
@@ -318,10 +324,10 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
             "REGRAS ESPECIAIS:\n" +
             "1. TRANSFERÊNCIA: Se o cliente quiser falar com humano, use a tag [TRANSFER].\n" +
             "2. AGENDAMENTO E VERIFICAÇÃO DE DISPONIBILIDADE:\n" +
-            "   - REGRA DE OURO: Consulte sempre os 'HORÁRIOS JÁ AGENDADOS E OCUPADOS' e 'HORÁRIO DE FUNCIONAMENTO'.\n" +
-            "   - NUNCA agende ou confirme um horário que já esteja ocupado por outra pessoa ou fora do expediente.\n" +
-            "   - Se o cliente solicitar um horário que já esteja ocupado, avise de forma educada: 'Desculpe, esse horário das HH:MM já está reservado para outro cliente. Tenho disponibilidade nos horários [sugerir horários livres no mesmo dia ou no dia seguinte]'.\n" +
-            "   - Somente quando o cliente escolher um horário REALMENTE LIVRE e confirmar, responda confirmando e adicione a tag: [SCHEDULE: Nome do Serviço | YYYY-MM-DD HH:mm:ss | Duração em Minutos].\n" +
+            "   - REGRA DE OURO: O único critério para um horário estar ocupado é constar expressamente listado nos 'HORÁRIOS JÁ AGENDADOS E OCUPADOS' acima.\n" +
+            "   - SE O HORÁRIO NÃO ESTÁ NA LISTA DE OCUPADOS (e está dentro do horário de funcionamento), ELE ESTÁ 100% LIVRE E DISPONÍVEL! NUNCA diga nem invente que o horário está ocupado se ele não estiver expressamente listado como ocupado acima.\n" +
+            "   - Se o cliente solicitar agendamento em data/hora livre, CONFIRME O AGENDAMENTO com o cliente e gere OBRIGATORIAMENTE no final da mensagem a tag: [SCHEDULE: Nome do Serviço | YYYY-MM-DD HH:mm:ss | Duração em Minutos]. Se o cliente não informou o serviço, use 'Atendimento Geral' com duração 30.\n" +
+            "   - SOMENTE se o horário estiver de fato listado na lista de OCUPADOS acima ou fora do expediente, informe que aquele horário já está ocupado e sugira horários livres.\n" +
             "3. CANCELAMENTO: Se o cliente quiser cancelar um agendamento, use a tag: [CANCEL: YYYY-MM-DD].\n" +
             "4. DADOS: Se o cliente informar CPF, E-mail ou Nome, use a tag: [DATA: cpf=... | email=... | name=...]. Use esta tag IMEDIATAMENTE após receber a informação.\n" +
             "5. ANÁLISE:\n" +
@@ -334,7 +340,7 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
           ...history
         ],
         max_tokens: 1000,
-        temperature: 0.7
+        temperature: 0.3
       }),
     });
 
