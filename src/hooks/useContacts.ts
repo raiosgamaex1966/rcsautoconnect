@@ -10,6 +10,7 @@ export interface Contact {
   avatar_url: string | null;
   tags: string[] | null;
   notes: string | null;
+  cpf: string | null;
   created_at: string;
   updated_at: string;
   tenant_id: string;
@@ -18,7 +19,7 @@ export interface Contact {
 export function useContacts() {
   const { user } = useAuth();
   const [contacts, setContacts] = useState<Contact[]>(() => {
-    const cached = localStorage.getItem("zapmax_contacts");
+    const cached = localStorage.getItem("rcs_contacts");
     return cached ? JSON.parse(cached) : [];
   });
   const [loading, setLoading] = useState(false);
@@ -33,7 +34,7 @@ export function useContacts() {
       console.error("Error fetching contacts:", error);
     } else if (data?.success) {
       setContacts(data.data || []);
-      localStorage.setItem("zapmax_contacts", JSON.stringify(data.data || []));
+      localStorage.setItem("rcs_contacts", JSON.stringify(data.data || []));
     }
     setLoading(false);
   }, [user]);
@@ -42,7 +43,7 @@ export function useContacts() {
     fetchContacts();
   }, [fetchContacts]);
 
-  const createContact = useCallback(async (contact: { name: string; phone: string; email?: string; tags?: string[]; notes?: string }) => {
+  const createContact = useCallback(async (contact: { name: string; phone: string; email?: string; cpf?: string; tags?: string[]; notes?: string }) => {
     if (!user) return { error: "Not authenticated" };
     const { data, error } = await supabase.functions.invoke("data-api", {
       body: { _action: "contacts-create", ...contact },
@@ -54,7 +55,7 @@ export function useContacts() {
     return { error: undefined };
   }, [user, fetchContacts]);
 
-  const updateContact = useCallback(async (id: string, updates: Partial<Pick<Contact, "name" | "phone" | "email" | "tags" | "notes">>) => {
+  const updateContact = useCallback(async (id: string, updates: Partial<Pick<Contact, "name" | "phone" | "email" | "cpf" | "tags" | "notes">>) => {
     const { data, error } = await supabase.functions.invoke("data-api", {
       body: { _action: "contacts-update", id, updates },
     });

@@ -28,6 +28,7 @@ import Roadmap from "./pages/Roadmap";
 import Admin from "./pages/Admin";
 import Kanban from "./pages/Kanban";
 import Equipe from "./pages/Equipe";
+import Fluxos from "./pages/Fluxos";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -75,6 +76,7 @@ const App = () => {
                   <Route path="/planos" element={<Planos />} />
                   <Route path="/como-usar" element={<ComoUsar />} />
                   <Route path="/roadmap" element={<Roadmap />} />
+                  <Route path="/fluxos" element={<Fluxos />} />
                   <Route path="/admin" element={<Admin />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />

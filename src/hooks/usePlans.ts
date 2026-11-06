@@ -29,11 +29,11 @@ export interface Subscription {
 export function usePlans() {
   const { user } = useAuth();
   const [plans, setPlans] = useState<Plan[]>(() => {
-    const cached = localStorage.getItem("zapmax_plans");
+    const cached = localStorage.getItem("rcs_plans");
     return cached ? JSON.parse(cached) : [];
   });
   const [subscription, setSubscription] = useState<Subscription | null>(() => {
-    const cached = localStorage.getItem("zapmax_subscription");
+    const cached = localStorage.getItem("rcs_subscription");
     return cached ? JSON.parse(cached) : null;
   });
   const [loading, setLoading] = useState(false);
@@ -47,7 +47,7 @@ export function usePlans() {
       });
       if (plansRes?.success && plansRes.data) {
         setPlans(plansRes.data);
-        localStorage.setItem("zapmax_plans", JSON.stringify(plansRes.data));
+        localStorage.setItem("rcs_plans", JSON.stringify(plansRes.data));
       }
 
       if (user) {
@@ -56,7 +56,7 @@ export function usePlans() {
         });
         if (subRes?.success && subRes.data) {
           setSubscription(subRes.data);
-          localStorage.setItem("zapmax_subscription", JSON.stringify(subRes.data));
+          localStorage.setItem("rcs_subscription", JSON.stringify(subRes.data));
         }
       }
 

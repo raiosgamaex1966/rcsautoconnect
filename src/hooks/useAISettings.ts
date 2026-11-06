@@ -18,6 +18,8 @@ export interface AISettings {
   openai_model: string;
   image_understanding_enabled: boolean;
   audio_transcription_enabled: boolean;
+  voice_enabled: boolean;
+  voice_id: string;
 }
 
 const defaults: AISettings = {
@@ -36,12 +38,14 @@ const defaults: AISettings = {
   openai_model: "gpt-4o",
   image_understanding_enabled: false,
   audio_transcription_enabled: false,
+  voice_enabled: false,
+  voice_id: "alloy",
 };
 
 export function useAISettings() {
   const { user } = useAuth();
   const [settings, setSettings] = useState<AISettings>(() => {
-    const cached = localStorage.getItem("zapmax_ai_settings");
+    const cached = localStorage.getItem("rcs_ai_settings");
     return cached ? JSON.parse(cached) : defaults;
   });
   const [loading, setLoading] = useState(false);
@@ -73,9 +77,11 @@ export function useAISettings() {
           openai_model: d.openai_model || defaults.openai_model,
           image_understanding_enabled: d.image_understanding_enabled ?? false,
           audio_transcription_enabled: d.audio_transcription_enabled ?? false,
+          voice_enabled: d.voice_enabled ?? false,
+          voice_id: d.voice_id || "alloy",
         };
         setSettings(newSettings);
-        localStorage.setItem("zapmax_ai_settings", JSON.stringify(newSettings));
+        localStorage.setItem("rcs_ai_settings", JSON.stringify(newSettings));
       }
       setLoading(false);
     };
@@ -117,6 +123,8 @@ export function useAISettings() {
         openai_model: finalSettings.openai_model,
         image_understanding_enabled: finalSettings.image_understanding_enabled,
         audio_transcription_enabled: finalSettings.audio_transcription_enabled,
+        voice_enabled: finalSettings.voice_enabled,
+        voice_id: finalSettings.voice_id,
       };
 
       // Only include API key if it's not the masked placeholder
@@ -133,7 +141,7 @@ export function useAISettings() {
         return false;
       }
 
-      localStorage.setItem("zapmax_ai_settings", JSON.stringify(finalSettings));
+      localStorage.setItem("rcs_ai_settings", JSON.stringify(finalSettings));
       return true;
     } catch (err) {
       console.error("Exception saving AI settings:", err);

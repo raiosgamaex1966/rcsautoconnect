@@ -5,6 +5,7 @@ import {
   Search, MessageCircle, Send, Bot, Phone, ArrowLeft, Loader2, Bell,
   Filter, XCircle, CheckCircle2, Clock, Sparkles, Copy, Check, Trash2,
   CalendarDays, RefreshCw, X, ArrowRightLeft, Zap, FileText, Play, Image as ImageIcon, Video,
+  Info, User, Mail, CreditCard, Tag, Save,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +15,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useConversations, useMessages, type Conversation, type Message } from "@/hooks/useConversations";
+import { useContacts } from "@/hooks/useContacts";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -158,13 +160,34 @@ function ChatBubble({ message }: { message: Message }) {
 
 function playNotificationSound() {
   try {
-    const ctx = new AudioContext();
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
     osc.frequency.value = 800; osc.type = "sine"; gain.gain.value = 0.3;
     osc.start(); gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
     osc.stop(ctx.currentTime + 0.3);
+  } catch {}
+}
+
+function playAlertSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    // Alert is a sequence of 3 tones
+    const playTone = (freq: number, start: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.frequency.value = freq; osc.type = "triangle";
+      gain.gain.setValueAtTime(0, ctx.currentTime + start);
+      gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + start + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + start + duration);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + duration);
+    };
+    playTone(440, 0, 0.4);
+    playTone(660, 0.2, 0.4);
+    playTone(880, 0.4, 0.6);
   } catch {}
 }
 
@@ -226,6 +249,7 @@ export default function Conversas() {
     { value: "closed", label: t.conversations.filters.closed, icon: XCircle },
   ];
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("id"));
+  const selectedConv = conversations.find((c) => c.id === selectedId);
   const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -246,11 +270,52 @@ export default function Conversas() {
   const [clearConfirmId, setClearConfirmId] = useState<string | null>(null);
   const [transferDialogOpen, setTransferDialogOpen] = useState(false);
 
+  const [rescheduleData, setRescheduleData] = useState<{ id: string; date: string; time: string } | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const { updateContact } = useContacts();
+
   // Schedule info for selected contact
   const [contactSchedules, setContactSchedules] = useState<any[]>([]);
   const [schedulesLoading, setSchedulesLoading] = useState(false);
   const [cancelScheduleId, setCancelScheduleId] = useState<string | null>(null);
-  const [rescheduleData, setRescheduleData] = useState<{ id: string; date: string; time: string } | null>(null);
+
+  // Contact Details Form State
+  const [detailsForm, setDetailsForm] = useState({
+    name: "",
+    email: "",
+    cpf: "",
+    notes: "",
+    tags: [] as string[],
+  });
+
+  useEffect(() => {
+    if (selectedConv?.contact) {
+      setDetailsForm({
+        name: selectedConv.contact.name || "",
+        email: selectedConv.contact.email || "",
+        cpf: selectedConv.contact.cpf || "",
+        notes: selectedConv.contact.notes || "",
+        tags: selectedConv.contact.tags || [],
+      });
+    }
+  }, [selectedConv]);
+
+  const handleUpdateContact = async () => {
+    if (!selectedConv?.contact_id) return;
+    const { error } = await updateContact(selectedConv.contact_id, {
+      name: detailsForm.name,
+      email: detailsForm.email,
+      cpf: detailsForm.cpf,
+      notes: detailsForm.notes,
+      tags: detailsForm.tags,
+    });
+    if (error) {
+      toast.error("Erro ao atualizar contato");
+    } else {
+      toast.success("Contato atualizado!");
+      fetchConversations({ background: true });
+    }
+  };
 
   // Get instance names for display
   const [instanceNames, setInstanceNames] = useState<Record<string, string>>({});
@@ -285,6 +350,7 @@ export default function Conversas() {
     });
   }, [user]);
 
+
   const filtered = useMemo(() => conversations.filter((c) => {
     const matchesSearch = c.contact.name.toLowerCase().includes(search.toLowerCase()) || c.contact.phone.includes(search);
     const matchesStatus = statusFilter === "all" || c.status === statusFilter;
@@ -292,26 +358,45 @@ export default function Conversas() {
     return matchesSearch && matchesStatus && matchesInstance;
   }), [conversations, search, statusFilter, instanceFilter]);
 
-  const selectedConv = conversations.find((c) => c.id === selectedId);
-
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, aiSuggestion]);
 
+  const prevPendingCountRef = useRef(0);
   useEffect(() => {
     const totalUnread = conversations.reduce((sum, c) => sum + c.unread_count, 0);
+    const pendingCount = conversations.filter(c => c.status === "pending").length;
+
     if (prevConvCountRef.current > 0 && totalUnread > prevConvCountRef.current) {
       playNotificationSound();
       toast.info("Nova mensagem recebida!", { icon: <Bell className="h-4 w-4" />, duration: 3000 });
     }
+
+    if (pendingCount > prevPendingCountRef.current) {
+      playAlertSound();
+      toast.error("⚠️ CLIENTE AGUARDANDO ATENDIMENTO HUMANO!", { 
+        icon: <User className="h-5 w-5" />, 
+        duration: 8000,
+        style: { border: '2px solid #ef4444', fontWeight: 'bold' }
+      });
+    }
+
+    // Dynamic Title Update
+    if (pendingCount > 0) {
+      document.title = `(${pendingCount}) ⚠️ Pendente | ZapMax`;
+    } else {
+      document.title = "ZapMax V1.7";
+    }
+
     prevConvCountRef.current = totalUnread;
+    prevPendingCountRef.current = pendingCount;
   }, [conversations]);
 
   // Clear AI suggestion when switching conversations
   useEffect(() => { 
     setAiSuggestion(""); 
     if (selectedId) {
-      localStorage.setItem("zapmax_last_conv_id", selectedId);
+      localStorage.setItem("rcs_last_conv_id", selectedId);
       setSearchParams(prev => {
         prev.set("id", selectedId);
         return prev;
@@ -322,7 +407,7 @@ export default function Conversas() {
   // Restore last selected conversation
   useEffect(() => {
     if (!selectedId && !searchParams.get("id")) {
-      const lastId = localStorage.getItem("zapmax_last_conv_id");
+      const lastId = localStorage.getItem("rcs_last_conv_id");
       if (lastId) setSelectedId(lastId);
     }
   }, []);
@@ -372,6 +457,12 @@ export default function Conversas() {
         toast.error(data?.error || "Erro ao enviar mensagem");
       } else {
         if (!content) setNewMessage("");
+        
+        // If human enters a pending conversation, mark it as open to stop alerts
+        if (selectedConv?.status === "pending") {
+          await updateStatus(selectedId, "open");
+        }
+        
         void refetchPlanLimits();
       }
     } catch { toast.error("Erro ao enviar mensagem"); }
@@ -622,19 +713,26 @@ export default function Conversas() {
             <Input placeholder={t.conversations.search} className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <div className="flex gap-1 overflow-x-auto">
-            {statusFilters.map((f) => (
-              <button
-                key={f.value}
-                onClick={() => setStatusFilter(f.value)}
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                  statusFilter === f.value ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <f.icon className="h-3 w-3" />
-                {f.label}
-                <span className="ml-0.5 text-[10px] opacity-70">{statusCounts[f.value]}</span>
-              </button>
-            ))}
+            {statusFilters.map((f) => {
+              const isPendingWithData = f.value === "pending" && statusCounts[f.value] > 0;
+              return (
+                <button
+                  key={f.value}
+                  onClick={() => setStatusFilter(f.value)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                    statusFilter === f.value 
+                      ? "bg-primary text-primary-foreground" 
+                      : isPendingWithData 
+                        ? "bg-red-500 text-white animate-pulse-red" 
+                        : "bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <f.icon className="h-3 w-3" />
+                  {f.label}
+                  <span className="ml-0.5 text-[10px] opacity-70">{statusCounts[f.value]}</span>
+                </button>
+              );
+            })}
           </div>
           {instanceFilter && (
             <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border-b border-border">
@@ -889,6 +987,14 @@ export default function Conversas() {
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Button
+                variant={showDetails ? "secondary" : "ghost"}
+                size="icon"
+                className="h-8 w-8"
+                onClick={() => setShowDetails(!showDetails)}
+              >
+                <Info className="h-4 w-4" />
+              </Button>
             </div>
           </div>
 
@@ -1015,6 +1121,111 @@ export default function Conversas() {
           <p className="text-lg">{t.conversations.selectConversation}</p>
         </div>
       )}
+
+      {/* Contact Details Sidebar */}
+      <AnimatePresence>
+        {selectedConv && showDetails && (
+          <motion.div
+            initial={{ x: 300, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 300, opacity: 0 }}
+            className="w-80 border-l border-border bg-card flex flex-col hidden lg:flex"
+          >
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <h3 className="font-semibold flex items-center gap-2">
+                <User className="h-4 w-4 text-primary" />
+                Detalhes do Contato
+              </h3>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowDetails(false)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-auto p-4 space-y-5">
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <User className="h-3 w-3" /> Nome
+                  </label>
+                  <Input
+                    value={detailsForm.name}
+                    onChange={(e) => setDetailsForm({ ...detailsForm, name: e.target.value })}
+                    className="h-8 text-sm"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Mail className="h-3 w-3" /> E-mail
+                  </label>
+                  <Input
+                    value={detailsForm.email}
+                    onChange={(e) => setDetailsForm({ ...detailsForm, email: e.target.value })}
+                    className="h-8 text-sm"
+                    placeholder="E-mail não informado"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <CreditCard className="h-3 w-3" /> CPF
+                  </label>
+                  <Input
+                    value={detailsForm.cpf}
+                    onChange={(e) => setDetailsForm({ ...detailsForm, cpf: e.target.value })}
+                    className="h-8 text-sm"
+                    placeholder="CPF não informado"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Tag className="h-3 w-3" /> Tags (separadas por vírgula)
+                  </label>
+                  <Input
+                    value={detailsForm.tags.join(", ")}
+                    onChange={(e) => setDetailsForm({ ...detailsForm, tags: e.target.value.split(",").map(t => t.trim()).filter(Boolean) })}
+                    className="h-8 text-sm"
+                    placeholder="ex: vip, novo"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <FileText className="h-3 w-3" /> Notas / Observações
+                  </label>
+                  <textarea
+                    value={detailsForm.notes}
+                    onChange={(e) => setDetailsForm({ ...detailsForm, notes: e.target.value })}
+                    className="w-full min-h-[100px] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    placeholder="Anote detalhes importantes aqui..."
+                  />
+                </div>
+
+                <Button className="w-full h-9 gap-2" onClick={handleUpdateContact}>
+                  <Save className="h-4 w-4" />
+                  Salvar Alterações
+                </Button>
+              </div>
+
+              {/* Quick History/Stats could go here */}
+              <div className="pt-4 border-t border-border">
+                 <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Resumo</p>
+                 <div className="bg-secondary/30 rounded-lg p-3 space-y-2">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Telefone:</span>
+                      <span className="font-medium">{selectedConv.contact.phone}</span>
+                    </div>
+                    <div className="flex justify-between text-xs">
+                      <span className="text-muted-foreground">Status:</span>
+                      <Badge variant="outline" className="h-4 px-1.5 text-[9px] capitalize">{selectedConv.status}</Badge>
+                    </div>
+                 </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AlertDialog open={!!clearConfirmId} onOpenChange={(open) => !open && setClearConfirmId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

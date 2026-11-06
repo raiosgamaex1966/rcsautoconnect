@@ -4,7 +4,7 @@ import {
   Bot, Building2, Shield, Bell, CreditCard, SlidersHorizontal,
   AlertTriangle, BookOpen, Calendar, FileText, Plus, CheckCircle2,
   Camera, Eye, EyeOff, User, Crown, MessageCircle, Users, Upload, X, Trash2,
-  Loader2, Key,
+  Loader2, Key, Mic, Volume2
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -259,6 +259,44 @@ export default function Configuracoes() {
                         checked={ai.audio_transcription_enabled} 
                         onCheckedChange={(v) => updateAI({ audio_transcription_enabled: v })} 
                       />
+                    </div>
+
+                    <div className="pt-2 mt-2 border-t border-border/50">
+                      <div className="flex items-start sm:items-center justify-between gap-3 p-2 rounded-lg bg-primary/5 border border-primary/20">
+                        <div className="min-w-0">
+                          <p className="font-medium text-xs sm:text-sm flex items-center gap-2">
+                            <Mic className="h-3.5 w-3.5 text-primary" /> Respostas por Voz
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            A IA responderá enviando um áudio no WhatsApp.
+                          </p>
+                        </div>
+                        <Switch 
+                          checked={ai.voice_enabled} 
+                          onCheckedChange={(v) => updateAI({ voice_enabled: v })} 
+                        />
+                      </div>
+
+                      {ai.voice_enabled && (
+                        <div className="mt-3 space-y-3 pl-2 border-l-2 border-primary/30">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] sm:text-xs uppercase tracking-wider font-bold opacity-70">Escolha a Voz</Label>
+                            <Select value={ai.voice_id} onValueChange={(v) => updateAI({ voice_id: v })}>
+                              <SelectTrigger className="h-8 text-xs bg-background">
+                                <SelectValue placeholder="Selecione uma voz" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="alloy">Alloy (Neutro/Equilibrado)</SelectItem>
+                                <SelectItem value="echo">Echo (Masculino/Suave)</SelectItem>
+                                <SelectItem value="fable">Fable (Narrativo/Expressivo)</SelectItem>
+                                <SelectItem value="onyx">Onyx (Masculino/Forte)</SelectItem>
+                                <SelectItem value="nova">Nova (Feminino/Energético)</SelectItem>
+                                <SelectItem value="shimmer">Shimmer (Feminino/Claro)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
 

@@ -38,13 +38,14 @@ function ContactForm({
   saving,
 }: {
   initial?: Partial<Contact>;
-  onSubmit: (data: { name: string; phone: string; email: string; tags: string[]; notes: string }) => void;
+  onSubmit: (data: { name: string; phone: string; email: string; cpf: string; tags: string[]; notes: string }) => void;
   onCancel: () => void;
   saving: boolean;
 }) {
   const [name, setName] = useState(initial?.name || "");
   const [phone, setPhone] = useState(initial?.phone || "");
   const [email, setEmail] = useState(initial?.email || "");
+  const [cpf, setCpf] = useState(initial?.cpf || "");
   const [tagsInput, setTagsInput] = useState((initial?.tags || []).join(", "));
   const [notes, setNotes] = useState(initial?.notes || "");
 
@@ -54,7 +55,7 @@ function ContactForm({
       return;
     }
     const tags = tagsInput.split(",").map((t) => t.trim()).filter(Boolean);
-    onSubmit({ name: name.trim(), phone: phone.trim(), email: email.trim(), tags, notes: notes.trim() });
+    onSubmit({ name: name.trim(), phone: phone.trim(), email: email.trim(), cpf: cpf.trim(), tags, notes: notes.trim() });
   };
 
   return (
@@ -69,9 +70,15 @@ function ContactForm({
           <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="5511999999999" className="text-sm" />
         </div>
       </div>
-      <div className="space-y-1">
-        <Label className="text-xs">E-mail</Label>
-        <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="joao@email.com" className="text-sm" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">E-mail</Label>
+          <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="joao@email.com" className="text-sm" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">CPF</Label>
+          <Input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" className="text-sm" />
+        </div>
       </div>
       <div className="space-y-1">
         <Label className="text-xs">Tags (separadas por vírgula)</Label>
@@ -202,7 +209,7 @@ export default function Contatos() {
     return sortDir === "asc" ? <ArrowUp className="h-3 w-3 ml-1" /> : <ArrowDown className="h-3 w-3 ml-1" />;
   };
 
-  const handleCreate = async (data: { name: string; phone: string; email: string; tags: string[]; notes: string }) => {
+  const handleCreate = async (data: { name: string; phone: string; email: string; cpf: string; tags: string[]; notes: string }) => {
     setSaving(true);
     const result = await createContact(data);
     if (result.error) toast.error(result.error);
@@ -210,7 +217,7 @@ export default function Contatos() {
     setSaving(false);
   };
 
-  const handleUpdate = async (data: { name: string; phone: string; email: string; tags: string[]; notes: string }) => {
+  const handleUpdate = async (data: { name: string; phone: string; email: string; cpf: string; tags: string[]; notes: string }) => {
     if (!editContact) return;
     setSaving(true);
     const result = await updateContact(editContact.id, data);
@@ -428,6 +435,12 @@ export default function Contatos() {
                       </p>
                     )}
 
+                    {contact.cpf && (
+                      <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                        <Badge variant="secondary" className="px-1 py-0 text-[9px] font-normal">CPF</Badge> {contact.cpf}
+                      </p>
+                    )}
+
                     {contact.tags && contact.tags.length > 0 && (
                       <div className="flex gap-1 flex-wrap">
                         {contact.tags.map((tag) => (
@@ -459,6 +472,7 @@ export default function Contatos() {
                     <TableHead className="text-xs hidden sm:table-cell cursor-pointer select-none" onClick={() => handleSort("email")}>
                       <span className="inline-flex items-center">{t.contacts.email}<SortIcon field="email" /></span>
                     </TableHead>
+                    <TableHead className="text-xs hidden lg:table-cell">CPF</TableHead>
                     <TableHead className="text-xs hidden md:table-cell">{t.contacts.tags}</TableHead>
                     <TableHead className="text-xs text-right w-[120px]">Ações</TableHead>
                   </TableRow>
@@ -476,6 +490,7 @@ export default function Contatos() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground py-2">{contact.phone}</TableCell>
                       <TableCell className="text-xs text-muted-foreground py-2 hidden sm:table-cell">{contact.email || "—"}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground py-2 hidden lg:table-cell">{contact.cpf || "—"}</TableCell>
                       <TableCell className="py-2 hidden md:table-cell">
                         <div className="flex gap-1 flex-wrap">
                           {(contact.tags || []).map((tag) => (

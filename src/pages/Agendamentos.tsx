@@ -158,8 +158,19 @@ export default function Agendamentos() {
     { label: t.schedules.cancelled, value: dbSchedules.filter((s) => s.status === "cancelled").length, color: "text-destructive", icon: XCircle },
   ];
 
+  const [scheduleSearch, setScheduleSearch] = useState("");
+
   const upcomingSchedules = dbSchedules
     .filter((s) => s.scheduled_at >= new Date().toISOString() && (s.status === "pending" || s.status === "confirmed"))
+    .filter((s) => {
+      if (!scheduleSearch) return true;
+      const search = scheduleSearch.toLowerCase();
+      return (
+        s.title.toLowerCase().includes(search) || 
+        s.contact?.name?.toLowerCase().includes(search) ||
+        s.contact?.phone?.includes(search)
+      );
+    })
     .slice(0, 5);
 
   const handleCreateSchedule = async () => {
@@ -245,6 +256,21 @@ export default function Agendamentos() {
   const [newReminderOffset, setNewReminderOffset] = useState("60");
   const [newReminderUnit, setNewReminderUnit] = useState<"min" | "hours" | "days">("hours");
   const [newReminderMessage, setNewReminderMessage] = useState("Olá {nome}! Lembrando do seu agendamento de {servico} no dia {dia} às {hora}.");
+  const [triggering, setTriggering] = useState(false);
+
+  const handleTriggerReminders = async () => {
+    setTriggering(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("appointment-reminders");
+      if (error) throw error;
+      toast.success(`${data.sent || 0} lembrete(s) disparado(s) com sucesso!`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error("Erro ao disparar lembretes: " + (err.message || "Tente novamente."));
+    } finally {
+      setTriggering(false);
+    }
+  };
 
   const handleSaveReminder = async () => {
     if (!editingReminder) return;
@@ -410,6 +436,8 @@ export default function Agendamentos() {
                           <p className="text-xs text-muted-foreground">
                             {formatScheduleTime(s.scheduled_at, "short")} • {s.duration_minutes || 30}min
                             {s.contact?.name && ` • ${s.contact.name}${s.contact.phone ? ` (${s.contact.phone})` : ""}`}
+                            {s.contact?.email && ` • ${s.contact.email}`}
+                            {s.contact?.cpf && ` • CPF: ${s.contact.cpf}`}
                           </p>
                         </div>
                         <Badge variant={s.status === "confirmed" ? "default" : "outline"} className="text-[10px] capitalize shrink-0">
@@ -429,10 +457,20 @@ export default function Agendamentos() {
           <Card>
             <CardContent className="p-3 sm:py-6 space-y-4">
               <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
-                    <h2 className="text-base sm:text-xl font-bold">{t.schedules.agenda}</h2>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-4 w-4 sm:h-5 sm:w-5" />
+                      <h2 className="text-base sm:text-xl font-bold">{t.schedules.agenda}</h2>
+                    </div>
+                    <div className="relative w-full sm:w-64 sm:ml-4">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input 
+                        placeholder="Buscar agendamento..." 
+                        className="pl-8 h-8 text-xs" 
+                        value={scheduleSearch}
+                        onChange={(e) => setScheduleSearch(e.target.value)}
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="flex border border-border rounded-lg overflow-hidden">
@@ -444,9 +482,7 @@ export default function Agendamentos() {
                       </button>
                     </div>
                   </div>
-                </div>
                 <Badge variant="outline" className="text-xs w-fit">{formatDateBR(currentDate)}</Badge>
-              </div>
 
               <div className="flex flex-col-reverse lg:flex-row gap-4">
                 <div className="flex-1 space-y-3 sm:space-y-4 min-w-0">
@@ -485,7 +521,17 @@ export default function Agendamentos() {
                       <p className="text-sm sm:text-lg font-semibold mb-3">{t.schedules.weekdaysUpper[currentDate.getDay()]} - {currentDate.getDate().toString().padStart(2, "0")}</p>
                       {(() => {
                         const dayStr = format(currentDate, "yyyy-MM-dd");
-                        const daySchedules = dbSchedules.filter((s) => s.scheduled_at.startsWith(dayStr));
+                        const daySchedules = dbSchedules
+                          .filter((s) => s.scheduled_at.startsWith(dayStr))
+                          .filter((s) => {
+                            if (!scheduleSearch) return true;
+                            const search = scheduleSearch.toLowerCase();
+                            return (
+                              s.title.toLowerCase().includes(search) || 
+                              s.contact?.name?.toLowerCase().includes(search) ||
+                              s.contact?.phone?.includes(search)
+                            );
+                          });
                         if (daySchedules.length === 0) {
                           return (
                             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
@@ -503,6 +549,8 @@ export default function Agendamentos() {
                                   <p className="text-xs text-muted-foreground">
                                     {formatScheduleTime(s.scheduled_at, "time")} • {s.duration_minutes || 30}min
                                     {s.contact?.name && ` • ${s.contact.name}${s.contact.phone ? ` (${s.contact.phone})` : ""}`}
+                                    {s.contact?.email && ` • ${s.contact.email}`}
+                                    {s.contact?.cpf && ` • CPF: ${s.contact.cpf}`}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-1.5 shrink-0">
@@ -541,7 +589,8 @@ export default function Agendamentos() {
                   />
                 </div>
               </div>
-            </CardContent>
+            </div>
+          </CardContent>
           </Card>
         </TabsContent>
 
@@ -724,7 +773,16 @@ export default function Agendamentos() {
                 <p className="text-xs sm:text-sm text-muted-foreground">{t.schedules.remindersSubtitle}</p>
               </div>
             </div>
-            <div className="flex gap-2 w-full sm:w-auto">
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+              <Button 
+                variant="outline" 
+                className="flex-1 sm:flex-none text-xs sm:text-sm border-primary/50 text-primary hover:bg-primary/10" 
+                onClick={handleTriggerReminders}
+                disabled={triggering}
+              >
+                <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${triggering ? "animate-spin" : ""}`} /> 
+                {triggering ? "Disparando..." : "Disparar Agora"}
+              </Button>
               <Button variant="outline" className="flex-1 sm:flex-none text-xs sm:text-sm" onClick={() => setShowHistoryModal(true)}>
                 <History className="h-3.5 w-3.5 mr-1.5" /> {t.schedules.history}
               </Button>

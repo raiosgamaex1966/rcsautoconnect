@@ -31,7 +31,7 @@ import { usePlanLimits } from "@/hooks/usePlanLimits";
 import { useAISettings } from "@/hooks/useAISettings";
 import { supabase } from "@/integrations/supabase/client";
 import { exportDashboardCsv } from "@/utils/exportDashboardCsv";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLanguage } from "@/contexts/LanguageContext";
 
@@ -42,6 +42,33 @@ export default function Dashboard() {
   const { metrics, loading, period, setPeriod, chartData } = useDashboardMetrics();
   const { plan, usage, subscription, hasPlan, trialBlocked, isAdmin, loading: planLoading, getUsagePercent } = usePlanLimits();
   const { settings: aiSettings, update: updateAI, save: saveAI, loading: aiLoading, saving: aiSaving } = useAISettings();
+  const [usageUSD, setUsageUSD] = useState(0);
+  const [usageSource, setUsageSource] = useState<"openai-api" | "estimated" | "error" | null>(null);
+  const [loadingUsage, setLoadingUsage] = useState(false);
+
+  useEffect(() => {
+    const fetchUsage = async () => {
+      setLoadingUsage(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("data-api", {
+          body: { _action: "ai-usage-get" }
+        });
+        if (!error && data?.success) {
+          setUsageUSD(Number(data.data?.estimated_usd) || 0);
+          setUsageSource(data.data?.source || "estimated");
+        } else {
+          setUsageSource("error");
+          console.error("Usage fetch failed:", error || data?.error);
+        }
+      } catch (e) {
+        setUsageSource("error");
+        console.error("Usage fetch error:", e);
+      } finally {
+        setLoadingUsage(false);
+      }
+    };
+    if (user) fetchUsage();
+  }, [user]);
 
   const periodOptions: { value: PeriodFilter; label: string }[] = [
     { value: "today", label: t.dashboard.periods.today },
@@ -98,6 +125,64 @@ export default function Dashboard() {
           <p className="text-sm text-muted-foreground">{t.dashboard.hello.replace("{name}", displayName)}</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              try {
+                const { data: tenantData } = await supabase.rpc("get_user_tenant_id", { _user_id: user?.id });
+                if (!tenantData) return;
+
+                // Fetch user phone from profile
+                const { data: profile } = await supabase
+                  .from("profiles")
+                  .select("phone")
+                  .eq("user_id", user?.id)
+                  .single();
+
+                if (!profile?.phone) {
+                  toast.error("Por favor, configure seu telefone no perfil para receber o relatório.");
+                  return;
+                }
+
+                const { data, error } = await supabase.functions.invoke("daily-report", {
+                  body: { 
+                    tenant_id: tenantData,
+                    phone_to_send: profile.phone 
+                  }
+                });
+                
+                if (error) {
+                  let errorMsg = "Erro ao enviar relatório";
+                  try {
+                    // Try to extract the error message from the response body
+                    const errObj = error as any;
+                    if (errObj.context && typeof errObj.context.json === 'function') {
+                      const body = await errObj.context.json();
+                      if (body?.error) errorMsg = body.error;
+                    } else {
+                      errorMsg = error.message;
+                    }
+                  } catch (e) {
+                    errorMsg = error.message;
+                  }
+                  throw new Error(errorMsg);
+                }
+
+                if (!data?.success) throw new Error(data?.error || "Erro ao processar relatório");
+                
+                toast.success("Relatório enviado para seu WhatsApp!");
+              } catch (e: any) {
+                toast.error(e.message || "Erro ao enviar relatório");
+                console.error(e);
+              }
+            }}
+            disabled={loading}
+            className="border-primary text-primary hover:bg-primary/10"
+          >
+            <Bot className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Relatório RCS</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -260,6 +345,44 @@ export default function Dashboard() {
               }
             }}
           />
+        </CardContent>
+      </Card>
+      
+      {/* OpenAI Credits Usage Card */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm">Consumo OpenAI (Mês)</h3>
+                <p className="text-xs text-muted-foreground">
+                  {usageSource === "openai-api" ? "✅ Dado real da OpenAI" : usageSource === "estimated" ? "⚠️ Estimativa baseada no uso" : "Consumo do mês atual"}
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-primary flex items-center justify-end gap-2">
+                {loadingUsage ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : usageSource === "error" ? (
+                  <span className="text-destructive text-sm font-medium">Erro ao carregar</span>
+                ) : (
+                  `USD ${usageUSD.toFixed(4)}`
+                )}
+              </div>
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="h-auto p-0 text-[10px]" 
+                onClick={() => window.open("https://platform.openai.com/usage", "_blank")}
+              >
+                Ver faturamento oficial ↗
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -446,6 +569,80 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Sentiment Analysis Chart */}
+      <Card>
+        <CardHeader className="pb-2 sm:pb-3">
+          <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-primary" /> Análise de Sentimento
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pb-3 sm:pb-4">
+          <div className="flex flex-col md:flex-row items-center gap-6">
+            <div className="w-full h-[240px] md:w-1/2">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={(() => {
+                      const d = [
+                        { name: "Satisfeito", value: metrics?.sentimentCounts?.satisfeito || 0, color: "#22c55e" },
+                        { name: "Neutro", value: metrics?.sentimentCounts?.neutro || 0, color: "#94a3b8" },
+                        { name: "Irritado", value: metrics?.sentimentCounts?.irritado || 0, color: "#ef4444" },
+                        { name: "Dúvida", value: metrics?.sentimentCounts?.duvida || 0, color: "#eab308" },
+                      ].filter(item => item.value > 0);
+                      return d.length > 0 ? d : [{ name: "Sem dados", value: 1, color: "#334155" }];
+                    })()}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {[
+                      { name: "Satisfeito", color: "#22c55e" },
+                      { name: "Neutro", color: "#94a3b8" },
+                      { name: "Irritado", color: "#ef4444" },
+                      { name: "Dúvida", color: "#eab308" },
+                    ].map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--card))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="w-full md:w-1/2 space-y-3">
+              {[
+                { label: "Satisfeito", value: metrics?.sentimentCounts?.satisfeito || 0, color: "bg-[#22c55e]", emoji: "😊" },
+                { label: "Neutro", value: metrics?.sentimentCounts?.neutro || 0, color: "bg-[#94a3b8]", emoji: "😐" },
+                { label: "Irritado", value: metrics?.sentimentCounts?.irritado || 0, color: "bg-[#ef4444]", emoji: "😠" },
+                { label: "Dúvida", value: metrics?.sentimentCounts?.duvida || 0, color: "bg-[#eab308]", emoji: "🤔" },
+              ].map((item) => (
+                <div key={item.label} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`h-3 w-3 rounded-full ${item.color}`} />
+                    <span className="text-xs sm:text-sm font-medium">{item.emoji} {item.label}</span>
+                  </div>
+                  <span className="text-xs sm:text-sm font-bold">{item.value}</span>
+                </div>
+              ))}
+              <div className="pt-2 border-t">
+                <p className="text-[10px] text-muted-foreground italic">
+                  * Análise baseada nas últimas conversas processadas pela IA.
+                </p>
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

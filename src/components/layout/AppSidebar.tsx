@@ -27,6 +27,7 @@ import {
   Shield,
   AlertTriangle,
   Kanban,
+  Zap,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +41,9 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+
+import { useEffect, useRef } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 // Menu items are now built dynamically inside the component using translations
 
@@ -64,6 +68,8 @@ export function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const { theme, setTheme } = useTheme();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
@@ -72,6 +78,57 @@ export function AppSidebar() {
   const { plan, trialDaysLeft, messageLimitReached, isAdmin: isAdminPlan, loading: planLoading } = usePlanLimits();
   const { t } = useLanguage();
   const { openWhatsApp } = useFloatingButtonPhone();
+
+  // Load notification sound
+  useEffect(() => {
+    audioRef.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3");
+  }, []);
+
+  // Realtime subscription for pending conversations
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // 1. Initial Fetch
+    const fetchPending = async () => {
+      const { data: tenant } = await supabase.rpc("get_user_tenant_id", { _user_id: user.id });
+      if (!tenant) return;
+
+      const { count } = await supabase
+        .from("conversations")
+        .select("*", { count: "exact", head: true })
+        .eq("tenant_id", tenant)
+        .eq("status", "pending");
+      
+      setPendingCount(count || 0);
+    };
+
+    fetchPending();
+
+    // 2. Subscribe to changes
+    const channel = supabase
+      .channel("conversations_status")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations" },
+        (payload) => {
+          const oldStatus = (payload.old as any)?.status;
+          const newStatus = (payload.new as any)?.status;
+
+          // Play sound ONLY if a NEW pending conversation arrives
+          if (newStatus === "pending" && oldStatus !== "pending") {
+            audioRef.current?.play().catch(e => console.log("Audio play failed:", e));
+          }
+          
+          // Always refetch to keep count perfectly synced
+          fetchPending();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   const menuItems = [
     { title: t.sidebar.dashboard, icon: LayoutDashboard, path: "/dashboard" },
@@ -85,6 +142,7 @@ export function AppSidebar() {
     { title: t.sidebar.plans, icon: CreditCard, path: "/planos" },
     { title: t.sidebar.howToUse, icon: HelpCircle, path: "/como-usar" },
     { title: t.sidebar.roadmap, icon: Map, path: "/roadmap" },
+    { title: "Fluxos", icon: Zap, path: "/fluxos" },
   ];
   const adminItem = { title: t.sidebar.admin, icon: Shield, path: "/admin" };
 
@@ -143,6 +201,33 @@ export function AppSidebar() {
                   >
                     <item.icon className="h-4 w-4" />
                     <span>{item.title}</span>
+                    
+                    {/* Visual Alert Badge for Pending Human Transfers */}
+                    {item.path === "/conversas" && pendingCount > 0 && (
+                      <div className="ml-auto relative flex items-center justify-center">
+                        <motion.div
+                          initial={{ scale: 0.8, opacity: 0.5 }}
+                          animate={{ 
+                            scale: [1, 2, 1],
+                            opacity: [0.5, 0, 0.5]
+                          }}
+                          transition={{
+                            duration: 2,
+                            repeat: Infinity,
+                            ease: "easeInOut"
+                          }}
+                          className="absolute h-4 w-4 rounded-full bg-destructive"
+                        />
+                        <motion.div
+                          initial={{ scale: 0 }}
+                          animate={{ scale: 1 }}
+                          className="relative flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground shadow-lg shadow-destructive/50"
+                        >
+                          {pendingCount}
+                        </motion.div>
+                      </div>
+                    )}
+
                     {!collapsed && (item.path === "/conversas" || item.path === "/kanban") && messageLimitReached && (
                       <div className="ml-auto flex items-center justify-center">
                         <AlertTriangle className="h-3.5 w-3.5 text-destructive animate-pulse" />

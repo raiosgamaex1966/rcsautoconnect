@@ -18,7 +18,7 @@ interface Schedule {
 export function useSchedules() {
   const { user } = useAuth();
   const [schedules, setSchedules] = useState<Schedule[]>(() => {
-    const cached = localStorage.getItem("zapmax_schedules");
+    const cached = localStorage.getItem("rcs_schedules");
     return cached ? JSON.parse(cached) : [];
   });
   const [loading, setLoading] = useState(false);
@@ -37,7 +37,7 @@ export function useSchedules() {
         contact: s.contact || null,
       }));
       setSchedules(list);
-      localStorage.setItem("zapmax_schedules", JSON.stringify(list));
+      localStorage.setItem("rcs_schedules", JSON.stringify(list));
     }
     setLoading(false);
   }, [user]);

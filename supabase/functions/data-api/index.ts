@@ -94,11 +94,11 @@ serve(async (req) => {
     if (action === "contacts-create") {
       const { tenantId, error } = await verifyTenant();
       if (error) return error;
-      const { name, phone, email, tags, notes } = body;
+      const { name, phone, email, cpf, tags, notes } = body;
       if (!name || !phone) return jsonResponse({ success: false, error: "name and phone required" }, 400);
       const { data, error: dbErr } = await adminClient.from("contacts").insert({
         tenant_id: tenantId, name: String(name).trim(), phone: String(phone).trim(),
-        email: email || null, tags: tags || [], notes: notes || null,
+        email: email || null, cpf: cpf || null, tags: tags || [], notes: notes || null,
       }).select().single();
       if (dbErr) return jsonResponse({ success: false, error: dbErr.message }, 500);
       return jsonResponse({ success: true, data });
@@ -109,7 +109,7 @@ serve(async (req) => {
       if (error) return error;
       const { id, updates } = body;
       if (!id || !updates) return jsonResponse({ success: false, error: "id and updates required" }, 400);
-      const allowed = ["name", "phone", "email", "tags", "notes"];
+      const allowed = ["name", "phone", "email", "cpf", "tags", "notes"];
       const sanitized: Record<string, unknown> = {};
       for (const k of allowed) { if (updates[k] !== undefined) sanitized[k] = updates[k]; }
       const { error: dbErr } = await adminClient.from("contacts").update(sanitized).eq("id", id).eq("tenant_id", tenantId);
@@ -137,7 +137,7 @@ serve(async (req) => {
       for (let i = 0; i < rows.length; i += BATCH) {
         const batch = rows.slice(i, i + BATCH).map((r: any) => ({
           tenant_id: tenantId, name: String(r.name || "").trim(), phone: String(r.phone || "").trim(),
-          email: r.email || null, tags: r.tags || [],
+          email: r.email || null, cpf: r.cpf || null, tags: r.tags || [],
         }));
         const { error: dbErr } = await adminClient.from("contacts").insert(batch);
         if (dbErr) return jsonResponse({ success: false, error: dbErr.message, data: { imported } }, 500);
@@ -180,7 +180,7 @@ serve(async (req) => {
       const { tenantId, error } = await verifyTenant();
       if (error) return error;
       const { data, error: dbErr } = await adminClient.from("schedules")
-        .select("*, contact:contacts(name, phone)").eq("tenant_id", tenantId)
+        .select("*, contact:contacts(name, phone, email, cpf)").eq("tenant_id", tenantId)
         .order("scheduled_at", { ascending: true });
       if (dbErr) return jsonResponse({ success: false, error: dbErr.message }, 500);
       return jsonResponse({ success: true, data });
@@ -355,7 +355,7 @@ serve(async (req) => {
     if (action === "ai-settings-upsert") {
       const { tenantId, error } = await verifyTenant();
       if (error) return error;
-      const allowed = ["ai_enabled", "focus_mode", "tone", "general_instructions", "formatting_style", "greeting", "farewell", "forbidden_responses", "human_trigger_words", "business_type", "business_hours", "openai_api_key", "openai_model", "image_understanding_enabled", "audio_transcription_enabled"];
+      const allowed = ["ai_enabled", "focus_mode", "tone", "general_instructions", "formatting_style", "greeting", "farewell", "forbidden_responses", "human_trigger_words", "business_type", "business_hours", "openai_api_key", "openai_model", "image_understanding_enabled", "audio_transcription_enabled", "voice_enabled", "voice_id", "voice_model"];
       const sanitized: Record<string, unknown> = { tenant_id: tenantId };
       for (const k of allowed) { if (body[k] !== undefined) sanitized[k] = body[k]; }
       // Don't overwrite API key with masked value
@@ -365,6 +365,45 @@ serve(async (req) => {
       const { error: dbErr } = await adminClient.from("ai_settings").upsert(sanitized, { onConflict: "tenant_id" });
       if (dbErr) return jsonResponse({ success: false, error: dbErr.message }, 500);
       return jsonResponse({ success: true });
+    }
+
+    if (action === "ai-usage-get") {
+      const { tenantId, error } = await verifyTenant();
+      if (error) return error;
+
+      try {
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const monthStartStr = startOfMonth.toISOString();
+
+        // Count AI-generated messages this month
+        const { count, error: countErr } = await adminClient
+          .from("messages")
+          .select("*", { count: "exact", head: true })
+          .eq("tenant_id", tenantId)
+          .eq("is_ai_generated", true)
+          .gte("sent_at", monthStartStr);
+
+        if (countErr) throw countErr;
+
+        // Estimate: average 400 tokens per message (input + output)
+        // Pricing for gpt-4o-mini is $0.15 / 1M input, $0.60 / 1M output
+        // We'll use a conservative average of $0.0005 per message (approx 1000 tokens of mixed mini/gpt-4o)
+        const totalCost = (count || 0) * 0.0005;
+
+        return jsonResponse({ 
+          success: true, 
+          data: { 
+            estimated_usd: totalCost,
+            source: "estimated",
+            period: "month",
+            count: count || 0
+          } 
+        });
+      } catch (e) {
+        console.error("[Usage] Error:", e);
+        return jsonResponse({ success: false, error: String(e) }, 500);
+      }
     }
 
     // ═══════════════════════════════════════════
@@ -814,7 +853,7 @@ serve(async (req) => {
 
       const withDate = (q: any, col: string) => start_date ? q.gte(col, start_date) : q;
 
-      const [convRes, msgRes, instRes, contactRes, schedRes, inboundRes, outboundRes, aiRes, manualRes] = await Promise.all([
+      const [convRes, msgRes, instRes, contactRes, schedRes, inboundRes, outboundRes, aiRes, manualRes, sentimentRes] = await Promise.all([
         withDate(adminClient.from("conversations").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId), "created_at"),
         withDate(adminClient.from("messages").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId), "sent_at"),
         adminClient.from("whatsapp_instances").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("status", "connected"),
@@ -824,6 +863,7 @@ serve(async (req) => {
         withDate(adminClient.from("messages").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("direction", "outbound"), "sent_at"),
         withDate(adminClient.from("messages").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("direction", "outbound").eq("is_ai_generated", true), "sent_at"),
         withDate(adminClient.from("messages").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("direction", "outbound").eq("is_ai_generated", false), "sent_at"),
+        adminClient.from("conversations").select("sentiment").eq("tenant_id", tenantId),
       ]);
 
       const metrics = {
@@ -836,6 +876,11 @@ serve(async (req) => {
         outboundMessages: outboundRes.count || 0,
         aiMessages: aiRes.count || 0,
         manualMessages: manualRes.count || 0,
+        sentimentCounts: (sentimentRes.data || []).reduce((acc: any, curr: any) => {
+          const s = curr.sentiment || "neutro";
+          acc[s] = (acc[s] || 0) + 1;
+          return acc;
+        }, { satisfeito: 0, neutro: 0, irritado: 0, duvida: 0 }),
       };
 
       // Chart data

@@ -16,7 +16,7 @@ export default function EvolutionApiTab() {
   const { t } = useLanguage();
   const e = t.admin.evolution;
   const [status, setStatus] = useState<EvolutionStatus | null>(() => {
-    const cached = localStorage.getItem("zapmax_admin_evolution_status");
+    const cached = localStorage.getItem("rcs_admin_evolution_status");
     return cached ? JSON.parse(cached) : null;
   });
   const [loading, setLoading] = useState(false);
@@ -29,7 +29,7 @@ export default function EvolutionApiTab() {
       if (error) { console.error("Evolution status error:", error); toast.error(e.statusCheckError); }
       else if (data?.success) {
         setStatus(data.data);
-        localStorage.setItem("zapmax_admin_evolution_status", JSON.stringify(data.data));
+        localStorage.setItem("rcs_admin_evolution_status", JSON.stringify(data.data));
       }
     } catch (err) { console.error(err); }
     finally { setLoading(false); }

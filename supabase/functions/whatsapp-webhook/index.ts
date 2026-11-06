@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { encode as encodeBase64 } from "https://deno.land/std@0.168.0/encoding/base64.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type" };
@@ -9,6 +10,27 @@ const EVO_URL = (Deno.env.get("EVOLUTION_API_URL") || "").trim().replace(/\/+$/,
 const EVO_KEY = (Deno.env.get("EVOLUTION_API_KEY") || "").trim();
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY);
+
+// ─── HELPERS: Variables & Context ──────────────────────────────────────────
+async function getContext(contactId: string, tenantId: string, stateVariables: any = {}) {
+  const { data: contact } = await db.from("contacts").select("*").eq("id", contactId).single();
+  const context = {
+    name: contact?.name || "Cliente",
+    phone: contact?.phone || "",
+    email: contact?.email || "",
+    ...contact?.metadata,
+    ...stateVariables
+  };
+  return context;
+}
+
+function replaceVariables(text: string, context: any) {
+  return text.replace(/\{\{(.*?)\}\}/g, (match, key) => {
+    const value = context[key.trim()];
+    return value !== undefined ? String(value) : match;
+  });
+}
+
 
 // ─── STEP 1: Download media base64 from Evolution API ───────────────────────
 async function downloadMedia(instance: string, message: any, convId: string, tenantId: string): Promise<{ b64: string; mime: string } | null> {
@@ -169,7 +191,7 @@ async function describeImage(b64: string, mime: string, apiKey: string, caption:
 }
 
 // ─── STEP 3: Generate AI text response ──────────────────────────────────────
-async function aiRespond(tenantId: string, convId: string, instanceName: string, phone: string) {
+async function aiRespond(tenantId: string, convId: string, instanceName: string, phone: string, contactId: string) {
   try {
     console.log(`[AI] Starting response for conv=${convId} instance=${instanceName}`);
     const { data: ai } = await db.from("ai_settings").select("*").eq("tenant_id", tenantId).maybeSingle();
@@ -179,16 +201,28 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       return;
     }
 
-    // 1. Prepare Context
+    // 1. Prepare Context (KB + Services)
     const { data: kbDocs } = await db.from("kb_documents")
       .select("title, content")
       .eq("tenant_id", tenantId)
       .eq("processing_status", "completed")
       .limit(10);
 
+    const { data: services } = await db.from("services")
+      .select("name, description, duration_minutes, price_cents")
+      .eq("tenant_id", tenantId)
+      .eq("active", true);
+
     let sys = `Você é um assistente de atendimento inteligente.\n${ai.general_instructions || ""}\nTom: ${ai.tone || "Amigável"}\nResponda em Português do Brasil.`;
+    
     if (kbDocs?.length) {
-      sys += "\n\nCONHECIMENTO BASE PARA CONSULTA:\n" + kbDocs.map((d: any) => `[${d.title}]\n${d.content}`).join("\n\n");
+      sys += "\n\nCONHECIMENTO BASE:\n" + kbDocs.map((d: any) => `[${d.title}]\n${d.content}`).join("\n\n");
+    }
+
+    if (services?.length) {
+      sys += "\n\nNOSSOS SERVIÇOS E PREÇOS:\n" + services.map((s: any) => 
+        `- ${s.name}: ${s.description || ""} (${s.duration_minutes}min) - R$ ${(s.price_cents / 100).toFixed(2).replace(".", ",")}`
+      ).join("\n");
     }
 
     // 2. Get History (protect against nulls)
@@ -230,7 +264,14 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
             "REGRAS ESPECIAIS:\n" +
             "1. TRANSFERÊNCIA: Se o cliente quiser falar com humano, use a tag [TRANSFER].\n" +
             "2. AGENDAMENTO: Se o cliente confirmar um serviço e horário, responda confirmando e adicione a tag: [SCHEDULE: Nome do Serviço | YYYY-MM-DD HH:mm:ss | Duração em Minutos].\n" +
-            "Exemplo: [SCHEDULE: Limpeza de Pele | 2026-04-25 14:30:00 | 60]"
+            "3. CANCELAMENTO: Se o cliente quiser cancelar um agendamento, use a tag: [CANCEL: YYYY-MM-DD].\n" +
+            "4. DADOS: Se o cliente informar CPF, E-mail ou Nome, use a tag: [DATA: cpf=... | email=... | name=...]. Use esta tag IMEDIATAMENTE após receber a informação.\n" +
+            "5. ANÁLISE:\n" +
+            "- Se o cliente agradecer ou estiver feliz: [ANALYSIS: satisfeito | Cliente agradeceu o atendimento]\n" +
+            "- Se o cliente estiver reclamando: [ANALYSIS: irritado | Cliente demonstrou insatisfação]\n" +
+            "- Se for uma conversa normal: [ANALYSIS: neutro | Conversa em andamento sobre X]\n" +
+            "- Se ele só tiver perguntas: [ANALYSIS: dúvida | Cliente buscando informações sobre Y]\n" +
+            "Responda sempre em Português de forma natural e empática."
           }, 
           ...history
         ],
@@ -255,7 +296,20 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
     if (!reply) return;
 
     // 4. Handle Special Tags
-    // a) Transfer
+    // a) Analysis
+    const analysisMatch = reply.match(/\[ANALYSIS: (.*?) \| (.*?)\]/);
+    if (analysisMatch) {
+      const sentiment = analysisMatch[1].trim().toLowerCase();
+      const summary = analysisMatch[2].trim();
+      await db.from("conversations").update({
+        sentiment: sentiment,
+        summary: summary,
+        last_analysis_at: new Date().toISOString()
+      }).eq("id", convId);
+      reply = reply.replace(analysisMatch[0], "").trim();
+    }
+
+    // b) Transfer
     if (reply.includes("[TRANSFER]")) {
       reply = reply.replace("[TRANSFER]", "").trim();
       await db.from("conversations").update({ status: "pending" }).eq("id", convId);
@@ -284,28 +338,47 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
              throw new Error("Não foi possível encontrar um administrador para este tenant.");
           }
 
-          // 2. Insert the schedule
-          const { error: schedErr } = await db.from("schedules").insert({
-            tenant_id: tenantId,
-            contact_id: conv?.contact_id,
-            title: `${title} (${phone})`, // Added phone here!
-            scheduled_at: new Date(dateTime).toISOString(),
-            duration_minutes: parseInt(duration) || 30,
-            status: "pending",
-            created_by: admin.user_id,
-            description: `Agendado automaticamente pela IA - Telefone: ${phone}`
-          });
+          // Fix Timezone: Ensure we treat the date as America/Sao_Paulo
+          // The dateTime from GPT is usually "YYYY-MM-DD HH:mm:ss"
+          const isoWithTimezone = dateTime.includes("T") ? dateTime : `${dateTime.replace(" ", "T")}-03:00`;
+          const finalDate = new Date(isoWithTimezone).toISOString();
 
-          if (schedErr) {
-            console.error("[AI] Schedule Insert Error:", schedErr);
-            await db.from("messages").insert({
-              conversation_id: convId, tenant_id: tenantId, direction: "outbound",
-              content: `⚠️ Erro ao gravar na agenda: ${schedErr.message}`,
-              is_ai_generated: false
-            });
+          // 2. Check if there's already a pending/confirmed schedule for this contact
+          const { data: existingSched } = await db.from("schedules")
+            .select("id")
+            .eq("tenant_id", tenantId)
+            .eq("contact_id", conv?.contact_id)
+            .in("status", ["pending", "confirmed"])
+            .gte("scheduled_at", new Date().toISOString()) // Only future ones
+            .order("scheduled_at", { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          if (existingSched) {
+            console.log(`[AI] Updating existing schedule ${existingSched.id}`);
+            const { error: updErr } = await db.from("schedules").update({
+              title: `${title} (${phone})`,
+              scheduled_at: finalDate,
+              duration_minutes: parseInt(duration) || 30,
+              description: `Remarcado automaticamente pela IA - Telefone: ${phone}`
+            }).eq("id", existingSched.id);
+            
+            if (updErr) throw updErr;
           } else {
-            console.log("[AI] Schedule created successfully");
+            // Insert the schedule
+            const { error: schedErr } = await db.from("schedules").insert({
+              tenant_id: tenantId,
+              contact_id: conv?.contact_id,
+              title: `${title} (${phone})`,
+              scheduled_at: finalDate,
+              duration_minutes: parseInt(duration) || 30,
+              status: "pending",
+              created_by: admin.user_id,
+              description: `Agendado automaticamente pela IA - Telefone: ${phone}`
+            });
+            if (schedErr) throw schedErr;
           }
+          console.log("[AI] Schedule operation successful");
         } catch (err: any) {
           console.error("[AI] Schedule Exception:", err);
           await db.from("messages").insert({
@@ -317,38 +390,160 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       }
     }
 
-    // 5. Send via Evolution
-    const fullJid = phone.includes("@") ? phone : `${phone}@s.whatsapp.net`;
-    const evoRes = await fetch(`${EVO_URL}/message/sendText/${instanceName}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: EVO_KEY },
-      body: JSON.stringify({ 
-        number: fullJid, 
-        text: reply,
-        options: { delay: 1000, presence: "composing" }
-      }),
-    });
+    // d) Cancel
+    if (reply.includes("[CANCEL:")) {
+      const match = reply.match(/\[CANCEL:\s*(.*?)\s*\]/);
+      if (match) {
+        const [fullTag, dateStr] = match;
+        reply = reply.replace(fullTag, "").trim();
+        
+        try {
+          console.log(`[AI] Cancelling schedules for date: ${dateStr}`);
+          const { data: conv } = await db.from("conversations").select("contact_id").eq("id", convId).single();
+          
+          // Delete pending schedules for this contact on that day
+          const { error: delErr } = await db.from("schedules")
+            .delete()
+            .eq("tenant_id", tenantId)
+            .eq("contact_id", conv?.contact_id)
+            .eq("status", "pending")
+            .filter("scheduled_at", "gte", `${dateStr}T00:00:00-03:00`)
+            .filter("scheduled_at", "lte", `${dateStr}T23:59:59-03:00`);
 
-    if (!evoRes.ok) {
-      const evoErr = await evoRes.text();
-      console.error("[AI] Evolution Send Error:", evoErr);
-      await db.from("messages").insert({
-        conversation_id: convId, tenant_id: tenantId, direction: "outbound",
-        content: `⚠️ Erro Evolution: ${evoErr.substring(0, 100)}`,
-        is_ai_generated: false
-      });
-      return;
+          if (delErr) throw delErr;
+          console.log("[AI] Cancellation/Cleanup successful");
+        } catch (err: any) {
+          console.error("[AI] Cancel Exception:", err);
+        }
+      }
     }
 
-    // 5. Success! Save to DB
-    await db.from("messages").insert({
-      conversation_id: convId,
-      tenant_id: tenantId,
-      direction: "outbound",
-      content: reply,
-      is_ai_generated: true,
-      sent_at: new Date().toISOString()
-    });
+    // d) Data Extraction (CPF, Email, Name)
+    if (reply.includes("[DATA:")) {
+      const match = reply.match(/\[DATA:\s*(.*?)\s*\]/);
+      if (match) {
+        const [fullTag, dataStr] = match;
+        reply = reply.replace(fullTag, "").trim();
+        
+        const updates: any = {};
+        if (dataStr.includes("cpf=")) {
+          updates.cpf = dataStr.match(/cpf=(.*?)(?:\s*\||$)/)?.[1]?.trim();
+        }
+        if (dataStr.includes("email=")) {
+          updates.email = dataStr.match(/email=(.*?)(?:\s*\||$)/)?.[1]?.trim();
+        }
+        if (dataStr.includes("name=")) {
+          updates.name = dataStr.match(/name=(.*?)(?:\s*\||$)/)?.[1]?.trim();
+        }
+
+        if (Object.keys(updates).length > 0) {
+          console.log(`[AI] Updating contact data:`, updates);
+          const { data: conv } = await db.from("conversations").select("contact_id").eq("id", convId).single();
+          if (conv?.contact_id) {
+            await db.from("contacts").update(updates).eq("id", conv.contact_id);
+          }
+        }
+      }
+    }
+
+    // 5. Send Response (Text or Voice)
+    const remoteJid = phone.includes("@") ? phone : `${phone}@s.whatsapp.net`;
+    
+    // Replace variables in AI reply if any (IA can generate {{name}} too)
+    const context = await getContext(contactId, tenantId);
+    reply = replaceVariables(reply, context);
+
+    if (ai.voice_enabled && reply.length < 1000) {
+      try {
+        console.log(`[AI] Generating voice response with voice: ${ai.voice_id}...`);
+        const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${ai.openai_api_key}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: ai.voice_model || "tts-1",
+            input: reply,
+            voice: ai.voice_id || "alloy",
+            response_format: "mp3"
+          })
+        });
+
+        if (ttsRes.ok) {
+          const audioBlob = await ttsRes.blob();
+          console.log("[AI] Uploading generated voice to Supabase Storage...");
+          const fileName = `ai_audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
+           const filePath = `${tenantId}/${fileName}`;
+           const arrayBuffer = await audioBlob.arrayBuffer();
+           const { error: uploadError } = await db.storage.from("whatsapp-media").upload(filePath, arrayBuffer, { contentType: "audio/mpeg", upsert: false });
+          
+          if (uploadError) {
+            console.error("[AI] Failed to upload audio:", JSON.stringify(uploadError));
+            throw new Error(`Upload falhou: ${uploadError.message || JSON.stringify(uploadError)}`);
+          }
+          const { data: urlData } = db.storage.from("whatsapp-media").getPublicUrl(filePath);
+          const audioUrl = urlData.publicUrl;
+
+          console.log("[AI] Sending voice response to Evolution API via sendMedia using URL:", audioUrl);
+          const evoRes = await fetch(`${EVO_URL}/message/sendMedia/${instanceName}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "apikey": EVO_KEY },
+            body: JSON.stringify({
+              number: remoteJid,
+              media: audioUrl,
+              mediatype: "audio",
+              options: { ptt: true },
+              delay: 1000,
+              encoding: true
+            })
+          });
+
+          if (!evoRes.ok) {
+             const evoErrText = await evoRes.text();
+             console.error("[AI] Evolution API Audio Send Error:", evoRes.status, evoErrText);
+             await db.from("messages").insert({
+               conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+               content: `⚠️ Erro EvoAPI (${evoRes.status}): ${evoErrText.substring(0,100)}`, is_ai_generated: true, sent_at: new Date().toISOString()
+             });
+             throw new Error(`Evo API failed with status ${evoRes.status}`);
+          }
+
+          await db.from("messages").insert({
+            conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+            content: `🎤 "${reply.substring(0, 80)}${reply.length > 80 ? '...' : ''}"`,
+            media_type: "audio",
+            media_url: audioUrl,
+            is_ai_generated: true, sent_at: new Date().toISOString()
+          });
+        } else {
+          console.error("[AI] TTS Error, falling back to text");
+          await sendEvolutionMessage(EVO_URL, EVO_KEY, instanceName, remoteJid, reply);
+          await db.from("messages").insert({
+            conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+            content: reply, is_ai_generated: true, sent_at: new Date().toISOString()
+          });
+        }
+      } catch (ttsErr: any) {
+        console.error("[AI] Voice Exception:", ttsErr);
+        await sendEvolutionMessage(EVO_URL, EVO_KEY, instanceName, remoteJid, reply);
+        await db.from("messages").insert({
+          conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+          content: reply, is_ai_generated: true, sent_at: new Date().toISOString()
+        });
+        await db.from("messages").insert({
+          conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+          content: `⚠️ Erro de Exceção TTS: ${ttsErr.message || String(ttsErr)}`, is_ai_generated: true, sent_at: new Date().toISOString()
+        });
+      }
+    } else {
+      // Send Text
+      await sendEvolutionMessage(EVO_URL, EVO_KEY, instanceName, remoteJid, reply);
+      await db.from("messages").insert({
+        conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+        content: reply, is_ai_generated: true, sent_at: new Date().toISOString()
+      });
+    }
 
     console.log("[AI] Success. Reply sent to", phone);
 
@@ -356,11 +551,177 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
     console.error("[AI] Fatal Exception:", e);
     await db.from("messages").insert({
       conversation_id: convId, tenant_id: tenantId, direction: "outbound",
-      content: `⚠️ Erro Fatal: ${e.message}`,
+      content: `⚠️ Erro Fatal na IA: ${e.message}`,
       is_ai_generated: false
     });
   }
 }
+
+/**
+ * Executes a specific node in an automation flow
+ */
+async function executeNode(node: any, flow: any, contactId: string, tenantId: string, instanceName: string, phone: string, convId: string, variables: any = {}) {
+  const remoteJid = phone.includes("@") ? phone : `${phone}@s.whatsapp.net`;
+  console.log(`[Flow] Executing node=${node.id} type=${node.type} for contact=${contactId}`);
+
+  const context = await getContext(contactId, tenantId, variables);
+
+  if (node.type === 'message') {
+    let text = node.data?.text || "Sem conteúdo";
+    text = replaceVariables(text, context);
+    
+    await sendEvolutionMessage(EVO_URL, EVO_KEY, instanceName, remoteJid, text);
+    
+    // Save to DB
+    await db.from("messages").insert({
+      conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+      content: text, is_ai_generated: false, sent_at: new Date().toISOString()
+    });
+
+    // If node is configured to wait for response, stop here
+    if (node.data?.wait_for_response) {
+      await db.from("automation_states").upsert({
+        contact_id: contactId, tenant_id: tenantId, flow_id: flow.id,
+        current_node_id: node.id, variables: variables, last_interaction_at: new Date().toISOString()
+      }, { onConflict: 'contact_id' });
+      return;
+    }
+
+    // Update state to current node
+    await db.from("automation_states").upsert({
+      contact_id: contactId, tenant_id: tenantId, flow_id: flow.id,
+      current_node_id: node.id, variables: variables, last_interaction_at: new Date().toISOString()
+    }, { onConflict: 'contact_id' });
+
+    // Chain to next node if connected
+    const edge = flow.edges?.find((e: any) => e.source === node.id);
+    if (edge) {
+      const nextNode = flow.nodes?.find((n: any) => n.id === edge.target);
+      if (nextNode) {
+        await new Promise(r => setTimeout(r, 800));
+        await executeNode(nextNode, flow, contactId, tenantId, instanceName, phone, convId, variables);
+      }
+    } else {
+      // End of flow
+      await db.from("automation_states").delete().eq("contact_id", contactId);
+    }
+
+  } else if (node.type === 'menu') {
+    let title = node.data?.title || "Escolha uma opção:";
+    title = replaceVariables(title, context);
+    
+    const options = node.data?.options || [];
+    let menuText = `*${title}*\n\n`;
+    options.forEach((opt: string, idx: number) => {
+      menuText += `${idx + 1}. ${opt}\n`;
+    });
+
+    await sendEvolutionMessage(EVO_URL, EVO_KEY, instanceName, remoteJid, menuText);
+
+    // Save to DB
+    await db.from("messages").insert({
+      conversation_id: convId, tenant_id: tenantId, direction: "outbound",
+      content: menuText, is_ai_generated: false, sent_at: new Date().toISOString()
+    });
+
+    // Update state
+    await db.from("automation_states").upsert({
+      contact_id: contactId, tenant_id: tenantId, flow_id: flow.id,
+      current_node_id: node.id, variables: variables, last_interaction_at: new Date().toISOString()
+    }, { onConflict: 'contact_id' });
+
+  } else if (node.type === 'condition') {
+    const { variable, operator, value } = node.data || {};
+    const actualValue = context[variable];
+    let result = false;
+
+    if (operator === 'equals') result = String(actualValue) === String(value);
+    else if (operator === 'contains') result = String(actualValue).toLowerCase().includes(String(value).toLowerCase());
+    else if (operator === 'not_equals') result = String(actualValue) !== String(value);
+    else if (operator === 'greater_than') result = Number(actualValue) > Number(value);
+    else if (operator === 'less_than') result = Number(actualValue) < Number(value);
+
+    const handle = result ? 'true' : 'false';
+    const edge = flow.edges?.find((e: any) => e.source === node.id && e.sourceHandle === handle);
+    
+    if (edge) {
+      const nextNode = flow.nodes?.find((n: any) => n.id === edge.target);
+      if (nextNode) {
+        await executeNode(nextNode, flow, contactId, tenantId, instanceName, phone, convId, variables);
+      }
+    } else {
+      await db.from("automation_states").delete().eq("contact_id", contactId);
+    }
+
+  } else if (node.type === 'http_request') {
+    const { url, method = 'GET', body, variable_name } = node.data || {};
+    try {
+      const parsedUrl = replaceVariables(url, context);
+      const res = await fetch(parsedUrl, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: method !== 'GET' ? replaceVariables(body || '{}', context) : undefined
+      });
+      
+      if (res.ok && variable_name) {
+        const data = await res.json();
+        variables[variable_name] = data;
+      }
+    } catch (e) {
+      console.error("[Flow] HTTP Request Error:", e);
+    }
+
+    const edge = flow.edges?.find((e: any) => e.source === node.id);
+    if (edge) {
+      const nextNode = flow.nodes?.find((n: any) => n.id === edge.target);
+      if (nextNode) {
+        await executeNode(nextNode, flow, contactId, tenantId, instanceName, phone, convId, variables);
+      }
+    } else {
+      await db.from("automation_states").delete().eq("contact_id", contactId);
+    }
+
+  } else if (node.type === 'action') {
+    const action = node.data?.action || "ai_handover";
+    
+    if (action === 'human_transfer') {
+      await db.from("conversations").update({ status: "pending" }).eq("id", convId);
+      await db.from("automation_states").delete().eq("contact_id", contactId);
+      const transferMsg = "Aguarde um momento, vou transferir você para um atendente humano. 👤";
+      await sendEvolutionMessage(EVO_URL, EVO_KEY, instanceName, remoteJid, transferMsg);
+      
+      // Save transfer message to DB
+      await db.from("messages").insert({
+        conversation_id: convId,
+        tenant_id: tenantId,
+        direction: "outbound",
+        content: transferMsg,
+        is_ai_generated: false,
+        sent_at: new Date().toISOString()
+      });
+    } else if (action === 'add_tag') {
+      const tagName = node.data?.tag_name;
+      if (tagName) {
+        const { data: contact } = await db.from("contacts").select("tags").eq("id", contactId).single();
+        const currentTags = contact?.tags ? contact.tags.split(",").map((t: string) => t.trim()) : [];
+        if (!currentTags.includes(tagName)) {
+          currentTags.push(tagName);
+          await db.from("contacts").update({ tags: currentTags.join(", ") }).eq("id", contactId);
+        }
+      }
+      const edge = flow.edges?.find((e: any) => e.source === node.id);
+      if (edge) {
+        const nextNode = flow.nodes?.find((n: any) => n.id === edge.target);
+        if (nextNode) await executeNode(nextNode, flow, contactId, tenantId, instanceName, phone, convId, variables);
+      } else {
+        await db.from("automation_states").delete().eq("contact_id", contactId);
+      }
+    } else if (action === 'ai_handover') {
+      await db.from("automation_states").delete().eq("contact_id", contactId);
+    }
+  }
+}
+
 
 // ─── MAIN HANDLER ────────────────────────────────────────────────────────────
 serve(async (req) => {
@@ -405,10 +766,23 @@ serve(async (req) => {
     if (!contact) return new Response("OK", { status: 200 });
 
     // ── Node 4: Get/Create Conversation ─────────────────────────────────────
-    let { data: conv } = await db.from("conversations").select("id, status").eq("contact_id", contact.id).eq("instance_id", inst.id).maybeSingle();
-    if (!conv) {
+    let { data: conv } = await db.from("conversations").select("id, status, last_message_at").eq("contact_id", contact.id).eq("instance_id", inst.id).maybeSingle();
+    let isNewConv = false;
+    
+    if (conv) {
+      const lastMsg = new Date(conv.last_message_at || 0).getTime();
+      const hoursSinceLast = (Date.now() - lastMsg) / (1000 * 60 * 60);
+      if (conv.status === "closed" || hoursSinceLast > 48) {
+        isNewConv = true;
+        // Reactivate conversation if it was closed
+        if (conv.status === "closed") {
+          await db.from("conversations").update({ status: "open" }).eq("id", conv.id);
+        }
+      }
+    } else {
       const { data: nc } = await db.from("conversations").insert({ contact_id: contact.id, instance_id: inst.id, tenant_id: inst.tenant_id, status: "open" }).select("id, status").single();
       conv = nc;
+      isNewConv = true;
     }
     if (!conv) return new Response("OK", { status: 200 });
 
@@ -472,11 +846,148 @@ serve(async (req) => {
     await db.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
     console.log(`[N6] Message saved. content="${finalContent.substring(0, 60)}" media_url=${mediaPublicUrl || "null"}`);
 
-    // ── Node 7: AI Response (only for inbound, non-pending) ──────────────────
+    // ── Node 6b: Auto-Confirm Schedule ──────────────────────────────────────
+    if (!fromMe && finalContent) {
+      const upper = finalContent.toUpperCase().trim().replace(/[.,!]/g, "");
+      if (["SIM", "CONFIRMO", "CONFIRMAR", "OK", "ESTA OK", "ESTÁ OK", "AGENDADO"].includes(upper)) {
+        console.log(`[N6b] Potential confirmation from ${phone}`);
+        // Find closest pending schedule for this contact
+        const { data: sched } = await db.from("schedules")
+          .select("id, title")
+          .eq("contact_id", contact.id)
+          .eq("status", "pending")
+          .gte("scheduled_at", new Date().toISOString())
+          .order("scheduled_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+          
+        if (sched) {
+          console.log(`[N6b] Auto-confirming schedule ${sched.id}: ${sched.title}`);
+          await db.from("schedules").update({ status: "confirmed" }).eq("id", sched.id);
+        }
+      }
+    }
+
+    // ── Node 7: AUTOMATION FLOWS (New) ──────────────────
+    let flowHandled = false;
     if (!fromMe && conv.status !== "pending") {
+      try {
+        console.log(`[Flow] Checking for active flows for contact=${contact.id}`);
+        
+        // 1. Check for active state
+        const { data: state } = await db.from("automation_states")
+          .select("*")
+          .eq("contact_id", contact.id)
+          .maybeSingle();
+
+        if (state) {
+          const lastInteraction = new Date(state.last_interaction_at || 0).getTime();
+          const now = Date.now();
+          const hoursInactive = (now - lastInteraction) / (1000 * 60 * 60);
+
+          if (hoursInactive > 24) {
+            console.log(`[Flow] State expired for contact=${contact.id}. Deleting.`);
+            await db.from("automation_states").delete().eq("contact_id", contact.id);
+            // After deleting, continue to trigger check
+          } else {
+            console.log(`[Flow] Contact in active flow=${state.flow_id} at node=${state.current_node_id}`);
+          // Logic to process next node based on input
+          const { data: flow } = await db.from("automation_flows").select("*").eq("id", state.flow_id).single();
+          if (flow && flow.is_active) {
+            const currentNode = flow.nodes?.find((n: any) => n.id === state.current_node_id);
+            const currentVariables = state.variables || {};
+
+            if (currentNode?.type === 'menu') {
+              // Match input to menu options
+              const input = finalContent.trim();
+              const options = currentNode.data?.options || [];
+              const optionIndex = options.findIndex((opt: string, idx: number) => 
+                input === String(idx + 1) || input.toLowerCase() === opt.toLowerCase()
+              );
+
+              if (optionIndex !== -1) {
+                // Find next node via edges
+                const edge = flow.edges?.find((e: any) => e.source === currentNode.id && e.sourceHandle === `option-${optionIndex}`);
+                if (edge) {
+                  const nextNode = flow.nodes?.find((n: any) => n.id === edge.target);
+                  if (nextNode) {
+                    await executeNode(nextNode, flow, contact.id, inst.tenant_id, instanceName, phone, conv.id, currentVariables);
+                    flowHandled = true;
+                  }
+                }
+              }
+            } else if (currentNode?.type === 'message' && currentNode.data?.wait_for_response) {
+              // Capture input to variables
+              const varName = currentNode.data?.variable_name;
+              if (varName) {
+                currentVariables[varName] = finalContent;
+              }
+              
+              // Find next node
+              const edge = flow.edges?.find((e: any) => e.source === currentNode.id);
+              if (edge) {
+                const nextNode = flow.nodes?.find((n: any) => n.id === edge.target);
+                if (nextNode) {
+                  await executeNode(nextNode, flow, contact.id, inst.tenant_id, instanceName, phone, conv.id, currentVariables);
+                  flowHandled = true;
+                }
+              }
+            } else {
+              // For other nodes, maybe just look for a direct connection (simple branching)
+              const edge = flow.edges?.find((e: any) => e.source === currentNode.id);
+              if (edge) {
+                const nextNode = flow.nodes?.find((n: any) => n.id === edge.target);
+                if (nextNode) {
+                  await executeNode(nextNode, flow, contact.id, inst.tenant_id, instanceName, phone, conv.id, currentVariables);
+                  flowHandled = true;
+                }
+              }
+            }
+          }
+          
+          if (!flowHandled) {
+             // If no match in menu, we can either repeat menu or handover to AI
+             // For now, let's just clear state and let AI handle it
+             await db.from("automation_states").delete().eq("contact_id", contact.id);
+          }
+        }
+      } else {
+          // 2. Check for triggers
+          const { data: activeFlows } = await db.from("automation_flows")
+            .select("*")
+            .eq("tenant_id", inst.tenant_id)
+            .eq("is_active", true);
+
+          const matchedFlow = activeFlows?.find(f => {
+            if (isNewConv && f.trigger_type === 'welcome') {
+              return true;
+            }
+            if (f.trigger_type === 'keyword' && f.trigger_value) {
+              return finalContent.toLowerCase().includes(f.trigger_value.toLowerCase());
+            }
+            return false;
+          });
+
+          if (matchedFlow) {
+            console.log(`[Flow] Trigger matched! Starting flow=${matchedFlow.id}`);
+            // Find start node (usually the one with no incoming edges or a specific start type)
+            // For now, let's take the first node that is NOT an action node if multiple exist
+            const startNode = matchedFlow.nodes?.find((n: any) => n.type !== 'action') || matchedFlow.nodes?.[0];
+            if (startNode) {
+              await executeNode(startNode, matchedFlow, contact.id, inst.tenant_id, instanceName, phone, conv.id);
+              flowHandled = true;
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[Flow] Error:", e);
+      }
+    }
+
+    if (!fromMe && conv.status !== "pending" && !flowHandled) {
       // Use instanceName ("bot") NOT the UUID
-      aiRespond(inst.tenant_id, conv.id, instanceName, phone)
-        .catch(e => console.error("[N7] AI error:", e));
+      aiRespond(inst.tenant_id, conv.id, instanceName, phone, contact.id)
+        .catch(e => console.error("[N8] AI error:", e));
     }
 
     return new Response(JSON.stringify({ success: true }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -485,3 +996,25 @@ serve(async (req) => {
     return new Response("Error", { status: 500, headers: corsHeaders });
   }
 });
+
+/**
+ * Helper to send text messages via Evolution API
+ */
+async function sendEvolutionMessage(url: string, key: string, instance: string, number: string, text: string) {
+  try {
+    const res = await fetch(`${url}/message/sendText/${instance}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: key },
+      body: JSON.stringify({
+        number: number,
+        text: text,
+        options: { delay: 1200, presence: "composing" }
+      })
+    });
+    if (!res.ok) {
+      console.error("[Evolution] Send failed:", await res.text());
+    }
+  } catch (e) {
+    console.error("[Evolution] Exception:", e);
+  }
+}

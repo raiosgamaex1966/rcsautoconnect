@@ -25,7 +25,7 @@ export function useUserPreferences() {
   const { user } = useAuth();
   const { setTheme } = useTheme();
   const [preferences, setPreferences] = useState<UserPreferences>(() => {
-    const cached = localStorage.getItem("zapmax_user_preferences");
+    const cached = localStorage.getItem("rcs_user_preferences");
     return cached ? JSON.parse(cached) : defaults;
   });
   const [loading, setLoading] = useState(false);
@@ -47,11 +47,11 @@ export function useUserPreferences() {
           ai_default_enabled: d.ai_default_enabled ?? defaults.ai_default_enabled,
         };
         setPreferences(prefs);
-        localStorage.setItem("zapmax_user_preferences", JSON.stringify(prefs));
+        localStorage.setItem("rcs_user_preferences", JSON.stringify(prefs));
         setTheme(themeMap[prefs.theme] || "dark");
       } else {
         // Fallback to defaults or cache if error
-        const cached = localStorage.getItem("zapmax_user_preferences");
+        const cached = localStorage.getItem("rcs_user_preferences");
         if (cached) setTheme(themeMap[JSON.parse(cached).theme] || "dark");
         else setTheme("dark");
       }
@@ -64,7 +64,7 @@ export function useUserPreferences() {
     setPreferences((prev) => {
       const next = { ...prev, ...partial };
       if (partial.theme) setTheme(themeMap[partial.theme] || "dark");
-      localStorage.setItem("zapmax_user_preferences", JSON.stringify(next));
+      localStorage.setItem("rcs_user_preferences", JSON.stringify(next));
       return next;
     });
   }, [setTheme]);

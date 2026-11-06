@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Smartphone, Wifi, WifiOff, QrCode, RefreshCw, Trash2, Plus,
   MessageSquare, CheckCircle, Loader2, AlertTriangle, Settings2, Settings,
-  Phone,
+  Phone, Instagram
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { useWhatsAppInstances, WhatsAppInstance } from "@/hooks/useWhatsAppInstances";
 import { usePlanLimits } from "@/hooks/usePlanLimits";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { toast } from "sonner";
 
 export default function WhatsApp() {
   const navigate = useNavigate();
@@ -32,8 +33,11 @@ export default function WhatsApp() {
   const [showConnectModal, setShowConnectModal] = useState<WhatsAppInstance | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState<WhatsAppInstance | null>(null);
   const [newName, setNewName] = useState("");
+  const [newChannelType, setNewChannelType] = useState<"whatsapp" | "instagram">("whatsapp");
   const [creating, setCreating] = useState(false);
   const [qrData, setQrData] = useState<string | null>(null);
+  const [instaUsername, setInstaUsername] = useState("");
+  const [instaPassword, setInstaPassword] = useState("");
   const [polling, setPolling] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -73,7 +77,7 @@ export default function WhatsApp() {
   const handleCreate = async () => {
     if (!newName.trim() || trialBlocked) return;
     setCreating(true);
-    const result = await createInstance(newName.trim());
+    const result = await createInstance(newName.trim(), newChannelType);
     setCreating(false);
     if (result) {
       await refetchPlanLimits();
@@ -87,9 +91,13 @@ export default function WhatsApp() {
   };
 
   const handleConnect = async (inst: WhatsAppInstance) => {
-    const result = await connectInstance(inst.id);
+    setCreating(true);
+    const result = await connectInstance(inst.id, instaUsername, instaPassword);
+    setCreating(false);
     if (result?.qr_code) {
       setQrData(result.qr_code);
+    } else if (inst.channel_type === "instagram") {
+      toast.success("Solicitação de login enviada. Aguarde a conexão...");
     }
   };
 
@@ -188,7 +196,11 @@ export default function WhatsApp() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${inst.status === "connected" ? "bg-green-500/10 text-green-500" : "bg-muted text-muted-foreground"}`}>
-                        <Smartphone className="h-5 w-5" />
+                        {inst.channel_type === "instagram" ? (
+                          <Instagram className="h-5 w-5" />
+                        ) : (
+                          <Smartphone className="h-5 w-5" />
+                        )}
                       </div>
                       <div className="min-w-0">
                         <p className="font-bold truncate text-foreground">{inst.instance_name}</p>
@@ -279,6 +291,30 @@ export default function WhatsApp() {
               <Label htmlFor="inst-name">{t.whatsapp.instanceName}</Label>
               <Input id="inst-name" placeholder={t.whatsapp.instanceNamePlaceholder} value={newName} onChange={(e) => setNewName(e.target.value)} />
             </div>
+
+            <div className="space-y-2">
+              <Label>Canal de Comunicação</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button 
+                  type="button"
+                  variant={newChannelType === "whatsapp" ? "default" : "outline"}
+                  className="flex flex-col h-20 gap-2 items-center justify-center"
+                  onClick={() => setNewChannelType("whatsapp")}
+                >
+                  <Smartphone className="h-6 w-6" />
+                  <span className="text-xs">WhatsApp</span>
+                </Button>
+                <Button 
+                  type="button"
+                  variant={newChannelType === "instagram" ? "default" : "outline"}
+                  className="flex flex-col h-20 gap-2 items-center justify-center"
+                  onClick={() => setNewChannelType("instagram")}
+                >
+                  <Instagram className="h-6 w-6" />
+                  <span className="text-xs">Instagram</span>
+                </Button>
+              </div>
+            </div>
             {trialBlocked && (
               <p className="text-xs text-destructive">
                 Trial automático desativado: o plano Grátis está bloqueado para criação de instâncias.
@@ -301,43 +337,89 @@ export default function WhatsApp() {
       </Dialog>
 
       {/* Connect Modal */}
-      <Dialog open={!!showConnectModal} onOpenChange={() => setShowConnectModal(null)}>
+      <Dialog open={!!showConnectModal} onOpenChange={(open) => {
+        if (!open) {
+          setShowConnectModal(null);
+          setInstaUsername("");
+          setInstaPassword("");
+        }
+      }}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
-          <DialogHeader><DialogTitle>Conectar {showConnectModal?.instance_name}</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">Escaneie o QR Code para vincular seu WhatsApp.</p>
-
-          {qrData ? (
+          <DialogHeader>
+            <DialogTitle>Conectar {showConnectModal?.instance_name}</DialogTitle>
+          </DialogHeader>
+          
+          {showConnectModal?.channel_type === "instagram" ? (
             <div className="space-y-4 mt-2">
-              <div className="flex justify-center">
-                <div className="w-56 h-56 bg-white rounded-lg flex items-center justify-center p-2">
-                  <img src={qrData.startsWith("data:") ? qrData : `data:image/png;base64,${qrData}`} alt="QR Code" className="w-full h-full object-contain" />
+              <p className="text-sm text-muted-foreground">Insira suas credenciais do Instagram para conectar o Direct.</p>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="insta-user">Usuário / Email</Label>
+                  <Input 
+                    id="insta-user" 
+                    placeholder="Seu usuário do Instagram" 
+                    value={instaUsername} 
+                    onChange={(e) => setInstaUsername(e.target.value)} 
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="insta-pass">Senha</Label>
+                  <Input 
+                    id="insta-pass" 
+                    type="password" 
+                    placeholder="Sua senha" 
+                    value={instaPassword} 
+                    onChange={(e) => setInstaPassword(e.target.value)} 
+                  />
                 </div>
               </div>
-              <div className="flex justify-center gap-2">
-                <Button variant="outline" className="gap-2" onClick={() => showConnectModal && handleConnect(showConnectModal)}>
-                  <RefreshCw className="h-4 w-4" /> Atualizar QR
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4 mt-2 text-center">
-              <p className="text-sm text-muted-foreground">QR Code não disponível. Clique para gerar.</p>
-              <Button className="gap-2" onClick={() => showConnectModal && handleConnect(showConnectModal)}>
-                <QrCode className="h-4 w-4" /> Gerar QR Code
+              <Button 
+                className="w-full gap-2" 
+                onClick={() => showConnectModal && handleConnect(showConnectModal)}
+                disabled={!instaUsername || !instaPassword || creating}
+              >
+                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Instagram className="h-4 w-4" />}
+                Conectar Instagram
               </Button>
             </div>
-          )}
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">Escaneie o QR Code para vincular seu WhatsApp.</p>
 
-          {polling && (
-            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Aguardando conexão...
-            </div>
-          )}
+              {qrData ? (
+                <div className="space-y-4 mt-2">
+                  <div className="flex justify-center">
+                    <div className="w-56 h-56 bg-white rounded-lg flex items-center justify-center p-2">
+                      <img src={qrData.startsWith("data:") ? qrData : `data:image/png;base64,${qrData}`} alt="QR Code" className="w-full h-full object-contain" />
+                    </div>
+                  </div>
+                  <div className="flex justify-center gap-2">
+                    <Button variant="outline" className="gap-2" onClick={() => showConnectModal && handleConnect(showConnectModal)}>
+                      <RefreshCw className="h-4 w-4" /> Atualizar QR
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 mt-2 text-center">
+                  <p className="text-sm text-muted-foreground">QR Code não disponível. Clique para gerar.</p>
+                  <Button className="gap-2" onClick={() => showConnectModal && handleConnect(showConnectModal)}>
+                    <QrCode className="h-4 w-4" /> Gerar QR Code
+                  </Button>
+                </div>
+              )}
 
-          <p className="text-xs text-center text-muted-foreground mt-2">
-            Abra o WhatsApp → Configurações → Aparelhos Conectados → Escanear código.
-          </p>
+              {polling && (
+                <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Aguardando conexão...
+                </div>
+              )}
+
+              <p className="text-xs text-center text-muted-foreground mt-2">
+                Abra o WhatsApp → Configurações → Aparelhos Conectados → Escanear código.
+              </p>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

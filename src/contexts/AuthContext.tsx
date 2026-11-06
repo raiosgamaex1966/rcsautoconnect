@@ -57,8 +57,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = async () => {
-    localStorage.removeItem("zapmax_ai_settings");
-    localStorage.removeItem("zapmax_user_preferences");
+    localStorage.removeItem("rcs_ai_settings");
+    localStorage.removeItem("rcs_user_preferences");
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

@@ -54,6 +54,8 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+scratch/
+test-evo.ts
 
 # Sensitive files (auto-detected)
 .env

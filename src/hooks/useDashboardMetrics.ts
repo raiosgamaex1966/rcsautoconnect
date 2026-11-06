@@ -14,6 +14,12 @@ export interface DashboardMetrics {
   outboundMessages: number;
   aiMessages: number;
   manualMessages: number;
+  sentimentCounts: {
+    satisfeito: number;
+    neutro: number;
+    irritado: number;
+    duvida: number;
+  };
 }
 
 export interface ChartDataPoint {
@@ -40,15 +46,16 @@ export function useDashboardMetrics() {
   const { user } = useAuth();
   const [period, setPeriod] = useState<PeriodFilter>("all");
   const [metrics, setMetrics] = useState<DashboardMetrics>(() => {
-    const cached = localStorage.getItem("zapmax_dashboard_metrics");
+    const cached = localStorage.getItem("rcs_dashboard_metrics");
     return cached ? JSON.parse(cached) : {
       totalConversations: 0, totalMessages: 0, activeInstances: 0,
       totalContacts: 0, pendingSchedules: 0, inboundMessages: 0,
       outboundMessages: 0, aiMessages: 0, manualMessages: 0,
+      sentimentCounts: { satisfeito: 0, neutro: 0, irritado: 0, duvida: 0 },
     };
   });
   const [chartData, setChartData] = useState<ChartDataPoint[]>(() => {
-    const cached = localStorage.getItem("zapmax_dashboard_chart");
+    const cached = localStorage.getItem("rcs_dashboard_chart");
     return cached ? JSON.parse(cached) : [];
   });
   const [loading, setLoading] = useState(false);
@@ -71,8 +78,8 @@ export function useDashboardMetrics() {
     if (!error && data?.success) {
       setMetrics(data.data.metrics);
       setChartData(data.data.chartData || []);
-      localStorage.setItem("zapmax_dashboard_metrics", JSON.stringify(data.data.metrics));
-      localStorage.setItem("zapmax_dashboard_chart", JSON.stringify(data.data.chartData || []));
+      localStorage.setItem("rcs_dashboard_metrics", JSON.stringify(data.data.metrics));
+      localStorage.setItem("rcs_dashboard_chart", JSON.stringify(data.data.chartData || []));
     }
 
     setLoading(false);

@@ -10,16 +10,17 @@ export interface WhatsAppInstance {
   status: "connected" | "disconnected" | "error" | "connecting";
   qr_code: string | null;
   evolution_instance_id: string | null;
+  channel_type: "whatsapp" | "instagram";
   created_at: string;
 }
 
 export function useWhatsAppInstances() {
   const [instances, setInstances] = useState<WhatsAppInstance[]>(() => {
-    const cached = localStorage.getItem("zapmax_whatsapp_instances");
+    const cached = localStorage.getItem("rcs_whatsapp_instances");
     return cached ? JSON.parse(cached) : [];
   });
   const [loading, setLoading] = useState(false);
-  const [hasFetched, setHasFetched] = useState(() => !!localStorage.getItem("zapmax_whatsapp_instances"));
+  const [hasFetched, setHasFetched] = useState(() => !!localStorage.getItem("rcs_whatsapp_instances"));
 
   const fetchInstances = useCallback(async () => {
     // setLoading(true);
@@ -35,7 +36,7 @@ export function useWhatsAppInstances() {
     if (data?.success) {
       const list: WhatsAppInstance[] = data.data || [];
       setInstances(list);
-      localStorage.setItem("zapmax_whatsapp_instances", JSON.stringify(list));
+      localStorage.setItem("rcs_whatsapp_instances", JSON.stringify(list));
       
       // Auto-check status for instances pending sync (status/phone)
       for (const inst of list) {
@@ -57,7 +58,7 @@ export function useWhatsAppInstances() {
                 const updated = prev.map(i =>
                   i.id === inst.id ? { ...i, status: nextStatus, phone: nextPhone } : i
                 );
-                localStorage.setItem("zapmax_whatsapp_instances", JSON.stringify(updated));
+                localStorage.setItem("rcs_whatsapp_instances", JSON.stringify(updated));
                 return updated;
               });
             }
@@ -69,9 +70,9 @@ export function useWhatsAppInstances() {
     setLoading(false);
   }, []);
 
-  const createInstance = useCallback(async (instanceName: string) => {
+  const createInstance = useCallback(async (instanceName: string, channelType: string = "whatsapp") => {
     const { data, error } = await supabase.functions.invoke("whatsapp-instances", {
-      body: { _action: "create", instance_name: instanceName },
+      body: { _action: "create", instance_name: instanceName, channel_type: channelType },
     });
     if (error || !data?.success) {
       toast.error(data?.error || "Erro ao criar instância");
@@ -82,9 +83,9 @@ export function useWhatsAppInstances() {
     return data.data;
   }, [fetchInstances]);
 
-  const connectInstance = useCallback(async (instanceId: string) => {
+  const connectInstance = useCallback(async (instanceId: string, username?: string, password?: string) => {
     const { data, error } = await supabase.functions.invoke("whatsapp-instances", {
-      body: { _action: "connect", instance_id: instanceId },
+      body: { _action: "connect", instance_id: instanceId, username, password },
     });
     if (error || !data?.success) {
       toast.error(data?.error || "Erro ao conectar");

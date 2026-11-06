@@ -30,11 +30,11 @@ export interface KanbanConversation {
 export function useKanban() {
   const { user } = useAuth();
   const [columns, setColumns] = useState<KanbanColumn[]>(() => {
-    const cached = localStorage.getItem("zapmax_kanban_columns");
+    const cached = localStorage.getItem("rcs_kanban_columns");
     return cached ? JSON.parse(cached) : [];
   });
   const [conversations, setConversations] = useState<KanbanConversation[]>(() => {
-    const cached = localStorage.getItem("zapmax_kanban_conversations");
+    const cached = localStorage.getItem("rcs_kanban_conversations");
     return cached ? JSON.parse(cached) : [];
   });
   const [loading, setLoading] = useState(false);
@@ -46,7 +46,7 @@ export function useKanban() {
     });
     if (!error && data?.success) {
       setColumns(data.data || []);
-      localStorage.setItem("zapmax_kanban_columns", JSON.stringify(data.data || []));
+      localStorage.setItem("rcs_kanban_columns", JSON.stringify(data.data || []));
       if (data.tenant_id) setTenantId(data.tenant_id);
     }
   }, []);
@@ -61,7 +61,7 @@ export function useKanban() {
         contact: c.contact || { id: c.contact_id, name: "Desconhecido", phone: "", avatar_url: null, tags: null },
       }));
       setConversations(list);
-      localStorage.setItem("zapmax_kanban_conversations", JSON.stringify(list));
+      localStorage.setItem("rcs_kanban_conversations", JSON.stringify(list));
     }
   }, []);
 
