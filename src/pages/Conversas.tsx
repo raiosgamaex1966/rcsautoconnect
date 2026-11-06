@@ -896,6 +896,17 @@ export default function Conversas() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              {selectedConv.status === "pending" && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs border-green-500/50 text-green-600 hover:bg-green-500/10 gap-1.5"
+                  onClick={() => handleStatusChange(selectedConv.id, "open")}
+                  title="Reativar respostas automáticas da IA nesta conversa"
+                >
+                  <Bot className="h-3.5 w-3.5 text-green-500" /> Reativar IA
+                </Button>
+              )}
               <Badge
                 variant="outline"
                 className={`text-xs capitalize ${
@@ -1041,6 +1052,24 @@ export default function Conversas() {
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* Pending Human Handover Banner */}
+          {selectedConv.status === "pending" && (
+            <div className="mx-4 mt-3 mb-1 p-2.5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 flex items-center justify-between text-xs text-yellow-700 dark:text-yellow-300">
+              <span className="flex items-center gap-2">
+                <Clock className="h-4 w-4 shrink-0 text-yellow-500" />
+                Atendimento humano solicitado (IA pausada). Clique em Reativar IA para a inteligência artificial voltar a responder automaticamente.
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-6 text-[11px] gap-1 shrink-0 ml-2 bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-900 dark:text-yellow-100"
+                onClick={() => handleStatusChange(selectedConv.id, "open")}
+              >
+                <Bot className="h-3 w-3" /> Reativar IA
+              </Button>
             </div>
           )}
 
