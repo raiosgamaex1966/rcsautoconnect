@@ -229,6 +229,167 @@ Deno.serve(async (req) => {
       return jsonResponse({ success: false, error: text }, 500);
     }
 
+    // CHECK STATUS (polling e sincronização com Evolution API)
+    if (action === "check-status") {
+      const { instance_id } = body;
+      if (!instance_id) return jsonResponse({ success: false, error: "instance_id required" }, 400);
+
+      const { data: inst } = await adminClient
+        .from("whatsapp_instances")
+        .select("*")
+        .eq("id", instance_id)
+        .eq("tenant_id", tenantId)
+        .single();
+
+      if (!inst) return jsonResponse({ success: false, error: "Instância não encontrada" }, 404);
+
+      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+      const evolutionKey = Deno.env.get("EVOLUTION_API_KEY");
+
+      if (evolutionUrl && evolutionKey && inst.evolution_instance_id) {
+        try {
+          const evoRes = await fetch(
+            `${evolutionUrl}/instance/connectionState/${inst.evolution_instance_id}`,
+            { headers: { "apikey": evolutionKey } }
+          );
+          const evoText = await evoRes.text();
+          console.log(`[CHECK-STATUS] ${inst.evolution_instance_id} state response:`, evoRes.status, evoText);
+
+          if (evoRes.ok) {
+            const evoData = JSON.parse(evoText);
+            const state = evoData?.instance?.state || evoData?.state || "";
+            let newStatus: string = inst.status;
+            let phone: string | null = inst.phone;
+
+            if (state === "open" || state === "connected") {
+              newStatus = "connected";
+              try {
+                const infoRes = await fetch(
+                  `${evolutionUrl}/instance/fetchInstances?instanceName=${inst.evolution_instance_id}`,
+                  { headers: { "apikey": evolutionKey } }
+                );
+                if (infoRes.ok) {
+                  const infoData = await infoRes.json();
+                  const list = Array.isArray(infoData) ? infoData : [infoData];
+                  const instanceInfo = list.find((it: any) => (it.name || it.instance?.instanceName) === inst.evolution_instance_id) || list[0];
+                  const rawOwner = instanceInfo?.ownerJid
+                    || instanceInfo?.instance?.owner
+                    || instanceInfo?.owner
+                    || instanceInfo?.instance?.wuid
+                    || "";
+                  const cleanPhone = String(rawOwner).split("@")[0].split(":")[0];
+                  if (cleanPhone) phone = cleanPhone;
+                }
+              } catch (e) {
+                console.error("[CHECK-STATUS] fetchInstances error:", e);
+              }
+            } else if (state === "close" || state === "disconnected") {
+              newStatus = "disconnected";
+            }
+
+            if (newStatus !== inst.status || phone !== inst.phone) {
+              await adminClient.from("whatsapp_instances").update({
+                status: newStatus as any,
+                phone: phone,
+                ...(newStatus === "connected" ? { qr_code: null } : {}),
+              }).eq("id", instance_id);
+            }
+
+            return jsonResponse({ success: true, data: { status: newStatus, phone } });
+          }
+        } catch (e) {
+          console.error("[CHECK-STATUS] Error:", e);
+        }
+      }
+
+      return jsonResponse({ success: true, data: { status: inst.status, phone: inst.phone } });
+    }
+
+    // DISCONNECT
+    if (action === "disconnect") {
+      const { instance_id } = body;
+      if (!instance_id) return jsonResponse({ success: false, error: "instance_id required" }, 400);
+
+      const { data: inst } = await adminClient
+        .from("whatsapp_instances")
+        .select("*")
+        .eq("id", instance_id)
+        .eq("tenant_id", tenantId)
+        .single();
+
+      if (!inst) return jsonResponse({ success: false, error: "Instância não encontrada" }, 404);
+
+      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+      const evolutionKey = Deno.env.get("EVOLUTION_API_KEY");
+
+      if (evolutionUrl && evolutionKey && inst.evolution_instance_id) {
+        try {
+          await fetch(`${evolutionUrl}/instance/logout/${inst.evolution_instance_id}`, {
+            method: "DELETE", headers: { "apikey": evolutionKey },
+          });
+        } catch (e) {
+          console.error("[DISCONNECT] Logout error:", e);
+        }
+      }
+
+      await adminClient.from("whatsapp_instances").update({
+        status: "disconnected", qr_code: null,
+      }).eq("id", instance_id);
+
+      return jsonResponse({ success: true, data: { message: "Desconectado" } });
+    }
+
+    // SET WEBHOOK
+    if (action === "set-webhook") {
+      const { instance_id } = body;
+      if (!instance_id) return jsonResponse({ success: false, error: "instance_id required" }, 400);
+
+      const { data: inst } = await adminClient
+        .from("whatsapp_instances")
+        .select("*")
+        .eq("id", instance_id)
+        .eq("tenant_id", tenantId)
+        .single();
+
+      if (!inst) return jsonResponse({ success: false, error: "Instância não encontrada" }, 404);
+
+      const evolutionUrl = Deno.env.get("EVOLUTION_API_URL");
+      const evolutionKey = Deno.env.get("EVOLUTION_API_KEY");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+
+      if (evolutionUrl && evolutionKey && inst.evolution_instance_id) {
+        const webhookUrl = `${supabaseUrl}/functions/v1/whatsapp-webhook`;
+        const webhookPayload = {
+          webhook: {
+            enabled: true,
+            url: webhookUrl,
+            events: ["MESSAGES_UPSERT", "MESSAGES_UPDATE", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+            byEvents: false,
+            base64: false,
+            webhook_by_events: false,
+            webhook_base64: false,
+            headers: {},
+          },
+        };
+
+        const evoRes = await fetch(`${evolutionUrl}/webhook/set/${inst.evolution_instance_id}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "apikey": evolutionKey },
+          body: JSON.stringify(webhookPayload),
+        });
+        const evoData = await evoRes.text();
+        console.log("[SET-WEBHOOK] Result:", evoRes.status, evoData);
+
+        if (!evoRes.ok) {
+          return jsonResponse({ success: false, error: `Falha ao configurar webhook: ${evoData}` }, 400);
+        }
+
+        return jsonResponse({ success: true, data: { message: "Webhook configurado", url: webhookUrl } });
+      }
+
+      return jsonResponse({ success: false, error: "Evolution API não configurada" }, 400);
+    }
+
     // DELETE
     if (action === "delete") {
       const { instance_id } = body;

@@ -213,6 +213,27 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       .eq("tenant_id", tenantId)
       .eq("active", true);
 
+    // Carrega horários de funcionamento, datas bloqueadas e agendamentos existentes
+    const { data: businessHours } = await db.from("business_hours")
+      .select("day_of_week, open_time, close_time, is_open")
+      .eq("tenant_id", tenantId);
+
+    const todayDate = new Date().toISOString().split("T")[0];
+    const { data: blockedDates } = await db.from("blocked_dates")
+      .select("date, reason")
+      .eq("tenant_id", tenantId)
+      .gte("date", todayDate);
+
+    // Agendamentos ocupados nos próximos 14 dias
+    const next14Days = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: upcomingSchedules } = await db.from("schedules")
+      .select("scheduled_at, duration_minutes, title")
+      .eq("tenant_id", tenantId)
+      .in("status", ["pending", "confirmed"])
+      .gte("scheduled_at", new Date().toISOString())
+      .lte("scheduled_at", next14Days)
+      .order("scheduled_at", { ascending: true });
+
     let sys = `Você é um assistente de atendimento inteligente.\n${ai.general_instructions || ""}\nTom: ${ai.tone || "Amigável"}\nResponda em Português do Brasil.`;
     
     if (kbDocs?.length) {
@@ -223,6 +244,34 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       sys += "\n\nNOSSOS SERVIÇOS E PREÇOS:\n" + services.map((s: any) => 
         `- ${s.name}: ${s.description || ""} (${s.duration_minutes}min) - R$ ${(s.price_cents / 100).toFixed(2).replace(".", ",")}`
       ).join("\n");
+    }
+
+    if (businessHours?.length) {
+      const days = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+      sys += "\n\nHORÁRIO DE ATENDIMENTO/FUNCIONAMENTO:\n" + businessHours.map((b: any) => 
+        `- ${days[b.day_of_week] || "Dia " + b.day_of_week}: ${b.is_open ? `${b.open_time} às ${b.close_time}` : "Fechado"}`
+      ).join("\n");
+    }
+
+    if (blockedDates?.length) {
+      sys += "\n\nDATAS/FERIADOS BLOQUEADOS (NÃO AGENDAR NESTAS DATAS):\n" + blockedDates.map((b: any) => 
+        `- ${b.date}: ${b.reason || "Indisponível"}`
+      ).join("\n");
+    }
+
+    if (upcomingSchedules?.length) {
+      sys += "\n\nHORÁRIOS JÁ AGENDADOS E OCUPADOS (NÃO PERMITIR AGENDAMENTO NESTES INTERVALOS):\n";
+      upcomingSchedules.forEach((sch: any) => {
+        const start = new Date(sch.scheduled_at);
+        const dur = sch.duration_minutes || 30;
+        const end = new Date(start.getTime() + dur * 60000);
+        const dateStr = start.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+        const startStr = start.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
+        const endStr = end.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" });
+        sys += `- ${dateStr} das ${startStr} às ${endStr} (OCUPADO)\n`;
+      });
+    } else {
+      sys += "\n\nAGENDA ATUAL: Todos os horários normais de atendimento estão livres.\n";
     }
 
     // 2. Get History (protect against nulls)
@@ -263,7 +312,11 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
             content: sys + `\n\nDATA/HORA ATUAL: ${nowStr}\n\n` +
             "REGRAS ESPECIAIS:\n" +
             "1. TRANSFERÊNCIA: Se o cliente quiser falar com humano, use a tag [TRANSFER].\n" +
-            "2. AGENDAMENTO: Se o cliente confirmar um serviço e horário, responda confirmando e adicione a tag: [SCHEDULE: Nome do Serviço | YYYY-MM-DD HH:mm:ss | Duração em Minutos].\n" +
+            "2. AGENDAMENTO E VERIFICAÇÃO DE DISPONIBILIDADE:\n" +
+            "   - REGRA DE OURO: Consulte sempre os 'HORÁRIOS JÁ AGENDADOS E OCUPADOS' e 'HORÁRIO DE FUNCIONAMENTO'.\n" +
+            "   - NUNCA agende ou confirme um horário que já esteja ocupado por outra pessoa ou fora do expediente.\n" +
+            "   - Se o cliente solicitar um horário que já esteja ocupado, avise de forma educada: 'Desculpe, esse horário das HH:MM já está reservado para outro cliente. Tenho disponibilidade nos horários [sugerir horários livres no mesmo dia ou no dia seguinte]'.\n" +
+            "   - Somente quando o cliente escolher um horário REALMENTE LIVRE e confirmar, responda confirmando e adicione a tag: [SCHEDULE: Nome do Serviço | YYYY-MM-DD HH:mm:ss | Duração em Minutos].\n" +
             "3. CANCELAMENTO: Se o cliente quiser cancelar um agendamento, use a tag: [CANCEL: YYYY-MM-DD].\n" +
             "4. DADOS: Se o cliente informar CPF, E-mail ou Nome, use a tag: [DATA: cpf=... | email=... | name=...]. Use esta tag IMEDIATAMENTE após receber a informação.\n" +
             "5. ANÁLISE:\n" +
@@ -342,8 +395,25 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
           // The dateTime from GPT is usually "YYYY-MM-DD HH:mm:ss"
           const isoWithTimezone = dateTime.includes("T") ? dateTime : `${dateTime.replace(" ", "T")}-03:00`;
           const finalDate = new Date(isoWithTimezone).toISOString();
+          const durationMin = parseInt(duration) || 30;
 
-          // 2. Check if there's already a pending/confirmed schedule for this contact
+          // 2. VERIFICAÇÃO CRÍTICA DE CONFLITO: Verifica se o horário já está agendado para outra pessoa
+          const reqStart = new Date(finalDate).getTime();
+          const reqEnd = reqStart + durationMin * 60000;
+
+          // Busca todos os agendamentos pendentes ou confirmados do tenant no mesmo dia
+          const dayStr = dateTime.split(" ")[0] || dateTime.split("T")[0];
+          const dayStartISO = `${dayStr}T00:00:00-03:00`;
+          const dayEndISO = `${dayStr}T23:59:59-03:00`;
+
+          const { data: daySchedules } = await db.from("schedules")
+            .select("id, contact_id, scheduled_at, duration_minutes, title")
+            .eq("tenant_id", tenantId)
+            .in("status", ["pending", "confirmed"])
+            .gte("scheduled_at", dayStartISO)
+            .lte("scheduled_at", dayEndISO);
+
+          // 3. Check if there's already a pending/confirmed schedule for this contact (para remarcação)
           const { data: existingSched } = await db.from("schedules")
             .select("id")
             .eq("tenant_id", tenantId)
@@ -354,12 +424,33 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
             .limit(1)
             .maybeSingle();
 
-          if (existingSched) {
+          // Identifica se há colisão com agendamento de OUTRA pessoa
+          const conflictingSched = (daySchedules || []).find((sch: any) => {
+            // Ignora o próprio agendamento atual deste contato se estiver remarcando
+            if (existingSched && sch.id === existingSched.id) return false;
+            
+            const schStart = new Date(sch.scheduled_at).getTime();
+            const schDur = (sch.duration_minutes || 30) * 60000;
+            const schEnd = schStart + schDur;
+
+            // Há sobreposição se: início do novo for antes do fim do existente E fim do novo for após o início do existente
+            return reqStart < schEnd && reqEnd > schStart;
+          });
+
+          if (conflictingSched) {
+            console.warn(`[AI] Conflito de horário detectado para ${finalDate} com agendamento ${conflictingSched.id}`);
+            const conflictTime = new Date(conflictingSched.scheduled_at).toLocaleTimeString('pt-BR', { 
+              hour: '2-digit', 
+              minute: '2-digit', 
+              timeZone: 'America/Sao_Paulo' 
+            });
+            reply = `Desculpe, verifiquei aqui na agenda e o horário das ${conflictTime} já está reservado para outro cliente. Por favor, me informe outro horário que fique melhor para você!`;
+          } else if (existingSched) {
             console.log(`[AI] Updating existing schedule ${existingSched.id}`);
             const { error: updErr } = await db.from("schedules").update({
               title: `${title} (${phone})`,
               scheduled_at: finalDate,
-              duration_minutes: parseInt(duration) || 30,
+              duration_minutes: durationMin,
               description: `Remarcado automaticamente pela IA - Telefone: ${phone}`
             }).eq("id", existingSched.id);
             
@@ -370,6 +461,14 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
               tenant_id: tenantId,
               contact_id: conv?.contact_id,
               title: `${title} (${phone})`,
+              scheduled_at: finalDate,
+              duration_minutes: durationMin,
+              status: "pending",
+              created_by: admin.user_id,
+              description: `Agendado automaticamente pela IA - Telefone: ${phone}`
+            });
+            if (schedErr) throw schedErr;
+          }
               scheduled_at: finalDate,
               duration_minutes: parseInt(duration) || 30,
               status: "pending",

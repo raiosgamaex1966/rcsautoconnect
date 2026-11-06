@@ -196,6 +196,36 @@ Deno.serve(async (req) => {
 
       const scheduledAt = `${date}T${time}:00-03:00`;
 
+      // Validação de conflito: Verifica se horário já está ocupado por outro cliente
+      const slotStart = new Date(scheduledAt).getTime();
+      const slotEnd = slotStart + durationMinutes * 60000;
+      const dayStart = `${date}T00:00:00-03:00`;
+      const dayEnd = `${date}T23:59:59-03:00`;
+
+      const { data: existingSchedules } = await supabase
+        .from("schedules")
+        .select("id, scheduled_at, duration_minutes, title")
+        .eq("tenant_id", tenant_id)
+        .gte("scheduled_at", dayStart)
+        .lte("scheduled_at", dayEnd)
+        .in("status", ["pending", "confirmed"]);
+
+      const hasConflict = (existingSchedules || []).some(sch => {
+        const schStart = new Date(sch.scheduled_at).getTime();
+        const schEnd = schStart + (sch.duration_minutes || 30) * 60000;
+        return slotStart < schEnd && slotEnd > schStart;
+      });
+
+      if (hasConflict) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: "Este horário já está reservado para outro cliente. Por favor, selecione outro horário."
+        }), {
+          status: 409,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // Get a tenant member to use as created_by
       const { data: member } = await supabase
         .from("tenant_members")

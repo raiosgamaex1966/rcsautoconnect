@@ -241,6 +241,19 @@ export default function WhatsApp() {
                         <Button size="sm" className="gap-1.5" onClick={() => handleReconnect(inst)}>
                           <RefreshCw className="h-3.5 w-3.5" /> {t.whatsapp.reconnect}
                         </Button>
+                        <Button variant="outline" size="sm" className="gap-1.5" title="Verificar status da conexão" onClick={async () => {
+                          toast.loading("Verificando conexão...", { id: "sync-status" });
+                          const res = await checkInstanceStatus(inst.id);
+                          if (res?.status === "connected") {
+                            toast.success("Instância conectada com sucesso!", { id: "sync-status" });
+                            await fetchInstances();
+                          } else {
+                            toast.info("Status na Evolution: " + (res?.status || "desconectado"), { id: "sync-status" });
+                            await fetchInstances();
+                          }
+                        }}>
+                          <CheckCircle className="h-3.5 w-3.5" /> Sincronizar
+                        </Button>
                         <div className="flex-1" />
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" title="Configurações" onClick={() => setSettingsInstance(inst)}>
                           <Settings className="h-4 w-4" />
