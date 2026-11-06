@@ -4,7 +4,7 @@ import {
   Bot, Building2, Shield, Bell, CreditCard, SlidersHorizontal,
   AlertTriangle, BookOpen, Calendar, FileText, Plus, CheckCircle2,
   Camera, Eye, EyeOff, User, Crown, MessageCircle, Users, Upload, X, Trash2,
-  Loader2, Key, Mic, Volume2
+  Loader2, Key, Mic, Volume2, Sparkles
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -327,21 +327,30 @@ export default function Configuracoes() {
                     <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
                     <p><strong>{t.settings.business.focusWarning}</strong></p>
                   </div>
-                  <RadioGroup value={ai.focus_mode} onValueChange={(v) => updateAI({ focus_mode: v })} className="space-y-2">
-                    <div className={`flex items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border ${ai.focus_mode === "base-conhecimento" ? "border-primary bg-primary/5" : "border-border"}`}>
-                      <RadioGroupItem value="base-conhecimento" id="bc" className="mt-1" />
-                      <div className="min-w-0">
-                        <Label htmlFor="bc" className="font-medium text-xs sm:text-sm flex items-center gap-1.5 flex-wrap">
-                          <BookOpen className="h-3.5 w-3.5" /> {t.settings.business.knowledgeBase}
+                  <RadioGroup value={ai.focus_mode || "hibrido"} onValueChange={(v) => updateAI({ focus_mode: v })} className="space-y-2">
+                    <div className={`flex items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border cursor-pointer transition-colors ${ai.focus_mode === "hibrido" || !ai.focus_mode ? "border-primary bg-primary/5" : "border-border"}`} onClick={() => updateAI({ focus_mode: "hibrido" })}>
+                      <RadioGroupItem value="hibrido" id="hb" className="mt-1" />
+                      <div className="min-w-0 flex-1">
+                        <Label htmlFor="hb" className="font-medium text-xs sm:text-sm flex items-center gap-1.5 flex-wrap cursor-pointer">
+                          <Sparkles className="h-3.5 w-3.5 text-primary" /> {t.settings.business.hybrid}
                           <Badge className="bg-primary text-[10px]">{t.settings.business.recommended}</Badge>
+                        </Label>
+                        <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{t.settings.business.hybridDesc}</p>
+                      </div>
+                    </div>
+                    <div className={`flex items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border cursor-pointer transition-colors ${ai.focus_mode === "base-conhecimento" ? "border-primary bg-primary/5" : "border-border"}`} onClick={() => updateAI({ focus_mode: "base-conhecimento" })}>
+                      <RadioGroupItem value="base-conhecimento" id="bc" className="mt-1" />
+                      <div className="min-w-0 flex-1">
+                        <Label htmlFor="bc" className="font-medium text-xs sm:text-sm flex items-center gap-1.5 flex-wrap cursor-pointer">
+                          <BookOpen className="h-3.5 w-3.5" /> {t.settings.business.knowledgeBase}
                         </Label>
                         <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{t.settings.business.knowledgeBaseDesc}</p>
                       </div>
                     </div>
-                    <div className={`flex items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border ${ai.focus_mode === "agendamentos" ? "border-primary bg-primary/5" : "border-border"}`}>
+                    <div className={`flex items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-lg border cursor-pointer transition-colors ${ai.focus_mode === "agendamentos" ? "border-primary bg-primary/5" : "border-border"}`} onClick={() => updateAI({ focus_mode: "agendamentos" })}>
                       <RadioGroupItem value="agendamentos" id="ag" className="mt-1" />
-                      <div className="min-w-0">
-                        <Label htmlFor="ag" className="font-medium text-xs sm:text-sm flex items-center gap-1.5">
+                      <div className="min-w-0 flex-1">
+                        <Label htmlFor="ag" className="font-medium text-xs sm:text-sm flex items-center gap-1.5 cursor-pointer">
                           <Calendar className="h-3.5 w-3.5" /> {t.settings.business.scheduling}
                         </Label>
                         <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">{t.settings.business.schedulingDesc}</p>
@@ -349,7 +358,11 @@ export default function Configuracoes() {
                     </div>
                   </RadioGroup>
                   <div className="text-[10px] sm:text-xs text-muted-foreground bg-secondary p-2 rounded">
-                    {t.common.mode}: <span className="text-primary font-medium">{ai.focus_mode === "base-conhecimento" ? t.settings.business.knowledgeBase : t.settings.business.scheduling}</span>
+                    {t.common.mode}: <span className="text-primary font-medium">{
+                      ai.focus_mode === "base-conhecimento" ? t.settings.business.knowledgeBase :
+                      ai.focus_mode === "agendamentos" ? t.settings.business.scheduling :
+                      t.settings.business.hybrid
+                    }</span>
                   </div>
                 </CardContent>
               </Card>

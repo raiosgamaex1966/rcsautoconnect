@@ -24,7 +24,7 @@ export interface AISettings {
 
 const defaults: AISettings = {
   ai_enabled: true,
-  focus_mode: "base-conhecimento",
+  focus_mode: "hibrido",
   tone: "amigavel",
   general_instructions: "",
   formatting_style: "",

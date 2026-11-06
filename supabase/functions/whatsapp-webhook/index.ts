@@ -241,6 +241,15 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
 
     let sys = `Você é um assistente de atendimento inteligente.\n${ai.general_instructions || ""}\nTom: ${ai.tone || "Amigável"}\nResponda em Português do Brasil.`;
     
+    const mode = ai.focus_mode || "hibrido";
+    if (mode === "base-conhecimento") {
+      sys += "\n\nOBJETIVO PRINCIPAL: Seu foco é tirar dúvidas e fornecer informações detalhadas com base no CONHECIMENTO BASE.\n";
+    } else if (mode === "agendamentos") {
+      sys += "\n\nOBJETIVO PRINCIPAL: Seu foco é conduzir o cliente ao agendamento de horários para os serviços.\n";
+    } else {
+      sys += "\n\nOBJETIVO PRINCIPAL (HÍBRIDO): Você é um assistente completo: responda dúvidas com base no CONHECIMENTO BASE e também faça agendamentos de horários sempre que o cliente desejar.\n";
+    }
+
     if (kbDocs?.length) {
       sys += "\n\nCONHECIMENTO BASE:\n" + kbDocs.map((d: any) => `[${d.title}]\n${d.content}`).join("\n\n");
     }
