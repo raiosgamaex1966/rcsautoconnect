@@ -33,6 +33,12 @@ export type Database = {
           tenant_id: string
           tone: string
           updated_at: string
+          voice_settings: Json | null
+          image_understanding_enabled: boolean | null
+          audio_transcription_enabled: boolean | null
+          voice_enabled: boolean | null
+          voice_id: string | null
+          voice_model: string | null
         }
         Insert: {
           ai_enabled?: boolean
@@ -52,6 +58,12 @@ export type Database = {
           tenant_id: string
           tone?: string
           updated_at?: string
+          voice_settings?: Json | null
+          image_understanding_enabled?: boolean | null
+          audio_transcription_enabled?: boolean | null
+          voice_enabled?: boolean | null
+          voice_id?: string | null
+          voice_model?: string | null
         }
         Update: {
           ai_enabled?: boolean
@@ -71,6 +83,12 @@ export type Database = {
           tenant_id?: string
           tone?: string
           updated_at?: string
+          voice_settings?: Json | null
+          image_understanding_enabled?: boolean | null
+          audio_transcription_enabled?: boolean | null
+          voice_enabled?: boolean | null
+          voice_id?: string | null
+          voice_model?: string | null
         }
         Relationships: [
           {

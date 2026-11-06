@@ -97,7 +97,16 @@ export function useAISettings() {
     setSaving(true);
     try {
       const { data: tenantData } = await supabase.rpc("get_user_tenant_id", { _user_id: user.id });
-      const tenantId = tenantData;
+      let tenantId = tenantData;
+      
+      if (!tenantId) {
+        const { data: prof } = await supabase.from("profiles").select("tenant_id").eq("user_id", user.id).maybeSingle();
+        tenantId = prof?.tenant_id;
+      }
+      if (!tenantId) {
+        const { data: mem } = await supabase.from("tenant_members").select("tenant_id").eq("user_id", user.id).limit(1).maybeSingle();
+        tenantId = mem?.tenant_id;
+      }
       
       if (!tenantId) {
         console.error("No tenant found for user");
@@ -149,7 +158,7 @@ export function useAISettings() {
     } finally {
       setSaving(false);
     }
-  }, [settings]);
+  }, [settings, user]);
 
 
   return { settings, update, save, loading, saving };
