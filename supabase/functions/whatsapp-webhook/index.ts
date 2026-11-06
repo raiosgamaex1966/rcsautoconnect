@@ -93,9 +93,14 @@ async function uploadToStorage(b64: string, mime: string, mediaType: string): Pr
     const ext = mime.split("/")[1]?.split(";")[0]?.split("+")[0] || extMap[mediaType] || "bin";
     const path = `${mediaType}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
     const blob = new Blob([bytes], { type: mime });
-    const { error } = await db.storage.from("whatsapp-media").upload(path, blob, { contentType: mime, upsert: false });
-    if (error) { console.error("[Storage] upload error:", error.message); return null; }
-    const { data } = db.storage.from("whatsapp-media").getPublicUrl(path);
+    let bucket = "whatsapp-media";
+    let res = await db.storage.from(bucket).upload(path, blob, { contentType: mime, upsert: false });
+    if (res.error) {
+      bucket = "whatsapp_media";
+      res = await db.storage.from(bucket).upload(path, blob, { contentType: mime, upsert: false });
+    }
+    if (res.error) { console.error("[Storage] upload error:", res.error.message); return null; }
+    const { data } = db.storage.from(bucket).getPublicUrl(path);
     console.log("[Storage] uploaded:", data.publicUrl);
     return data.publicUrl;
   } catch (e) { console.error("[Storage] exception:", e); return null; }
@@ -469,14 +474,6 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
             });
             if (schedErr) throw schedErr;
           }
-              scheduled_at: finalDate,
-              duration_minutes: parseInt(duration) || 30,
-              status: "pending",
-              created_by: admin.user_id,
-              description: `Agendado automaticamente pela IA - Telefone: ${phone}`
-            });
-            if (schedErr) throw schedErr;
-          }
           console.log("[AI] Schedule operation successful");
         } catch (err: any) {
           console.error("[AI] Schedule Exception:", err);
@@ -573,15 +570,20 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
           const audioBlob = await ttsRes.blob();
           console.log("[AI] Uploading generated voice to Supabase Storage...");
           const fileName = `ai_audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
-           const filePath = `${tenantId}/${fileName}`;
-           const arrayBuffer = await audioBlob.arrayBuffer();
-           const { error: uploadError } = await db.storage.from("whatsapp-media").upload(filePath, arrayBuffer, { contentType: "audio/mpeg", upsert: false });
-          
-          if (uploadError) {
-            console.error("[AI] Failed to upload audio:", JSON.stringify(uploadError));
-            throw new Error(`Upload falhou: ${uploadError.message || JSON.stringify(uploadError)}`);
+          const filePath = `${tenantId}/${fileName}`;
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          let bucketName = "whatsapp-media";
+          let uploadRes = await db.storage.from(bucketName).upload(filePath, arrayBuffer, { contentType: "audio/mpeg", upsert: false });
+          if (uploadRes.error) {
+            bucketName = "whatsapp_media";
+            uploadRes = await db.storage.from(bucketName).upload(filePath, arrayBuffer, { contentType: "audio/mpeg", upsert: false });
           }
-          const { data: urlData } = db.storage.from("whatsapp-media").getPublicUrl(filePath);
+          
+          if (uploadRes.error) {
+            console.error("[AI] Failed to upload audio:", JSON.stringify(uploadRes.error));
+            throw new Error(`Upload falhou: ${uploadRes.error.message || JSON.stringify(uploadRes.error)}`);
+          }
+          const { data: urlData } = db.storage.from(bucketName).getPublicUrl(filePath);
           const audioUrl = urlData.publicUrl;
 
           console.log("[AI] Sending voice response to Evolution API via sendMedia using URL:", audioUrl);
@@ -601,10 +603,6 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
           if (!evoRes.ok) {
              const evoErrText = await evoRes.text();
              console.error("[AI] Evolution API Audio Send Error:", evoRes.status, evoErrText);
-             await db.from("messages").insert({
-               conversation_id: convId, tenant_id: tenantId, direction: "outbound",
-               content: `⚠️ Erro EvoAPI (${evoRes.status}): ${evoErrText.substring(0,100)}`, is_ai_generated: true, sent_at: new Date().toISOString()
-             });
              throw new Error(`Evo API failed with status ${evoRes.status}`);
           }
 
@@ -624,15 +622,11 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
           });
         }
       } catch (ttsErr: any) {
-        console.error("[AI] Voice Exception:", ttsErr);
+        console.error("[AI] Voice Exception, falling back to text:", ttsErr);
         await sendEvolutionMessage(EVO_URL, EVO_KEY, instanceName, remoteJid, reply);
         await db.from("messages").insert({
           conversation_id: convId, tenant_id: tenantId, direction: "outbound",
           content: reply, is_ai_generated: true, sent_at: new Date().toISOString()
-        });
-        await db.from("messages").insert({
-          conversation_id: convId, tenant_id: tenantId, direction: "outbound",
-          content: `⚠️ Erro de Exceção TTS: ${ttsErr.message || String(ttsErr)}`, is_ai_generated: true, sent_at: new Date().toISOString()
         });
       }
     } else {
