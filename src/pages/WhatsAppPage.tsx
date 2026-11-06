@@ -295,10 +295,21 @@ export default function WhatsApp() {
       </div>
 
       {/* New Instance Modal */}
-      <Dialog open={showNewModal} onOpenChange={setShowNewModal}>
+      <Dialog open={showNewModal} onOpenChange={(open) => {
+        setShowNewModal(open);
+        if (open) setNewChannelType("whatsapp");
+      }}>
         <DialogContent className="max-w-[95vw] sm:max-w-md">
-          <DialogHeader><DialogTitle>{t.whatsapp.newInstanceTitle}</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">{t.whatsapp.newInstanceDesc}</p>
+          <DialogHeader>
+            <DialogTitle>
+              {newChannelType === "instagram" ? "Nova Instância Instagram" : "Nova Instância WhatsApp"}
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            {newChannelType === "instagram" 
+              ? "Adicione uma nova instância para conectar ao Instagram Direct."
+              : "Adicione uma nova instância para conectar ao WhatsApp."}
+          </p>
           <div className="space-y-4 mt-2">
             <div className="space-y-2">
               <Label htmlFor="inst-name">{t.whatsapp.instanceName}</Label>
@@ -306,7 +317,7 @@ export default function WhatsApp() {
             </div>
 
             <div className="space-y-2">
-              <Label>Canal de Comunicação</Label>
+              <Label>Canal de Comunicação (WhatsApp ou Instagram)</Label>
               <div className="grid grid-cols-2 gap-2">
                 <Button 
                   type="button"
@@ -315,7 +326,7 @@ export default function WhatsApp() {
                   onClick={() => setNewChannelType("whatsapp")}
                 >
                   <Smartphone className="h-6 w-6" />
-                  <span className="text-xs">WhatsApp</span>
+                  <span className="text-xs font-semibold">WhatsApp</span>
                 </Button>
                 <Button 
                   type="button"
@@ -324,7 +335,7 @@ export default function WhatsApp() {
                   onClick={() => setNewChannelType("instagram")}
                 >
                   <Instagram className="h-6 w-6" />
-                  <span className="text-xs">Instagram</span>
+                  <span className="text-xs font-semibold">Instagram</span>
                 </Button>
               </div>
             </div>
@@ -342,7 +353,7 @@ export default function WhatsApp() {
               <Button variant="outline" onClick={() => setShowNewModal(false)}>{t.common.cancel}</Button>
               <Button onClick={handleCreate} disabled={!newName.trim() || creating || !canCreateInstance()}>
                 {creating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
-                {t.whatsapp.createInstance}
+                {newChannelType === "instagram" ? "Criar Instância Instagram" : "Criar Instância WhatsApp"}
               </Button>
             </div>
           </div>

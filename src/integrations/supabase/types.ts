@@ -1173,6 +1173,7 @@ export type Database = {
       }
       whatsapp_instances: {
         Row: {
+          channel_type: string | null
           created_at: string
           evolution_instance_id: string | null
           id: string
@@ -1184,6 +1185,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          channel_type?: string | null
           created_at?: string
           evolution_instance_id?: string | null
           id?: string
@@ -1195,6 +1197,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          channel_type?: string | null
           created_at?: string
           evolution_instance_id?: string | null
           id?: string

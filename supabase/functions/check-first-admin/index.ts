@@ -60,14 +60,22 @@ Deno.serve(async (req) => {
         .eq("role", "admin")
         .maybeSingle();
 
-      // NEW: Also check if this admin has a tenant. If not, create one.
-      const { data: membership } = await adminClient
-        .from("tenant_members")
+      // Check if user has tenant in profile or tenant_members
+      const { data: userProfile } = await adminClient
+        .from("profiles")
         .select("tenant_id")
         .eq("user_id", userId)
         .maybeSingle();
 
-      if (!!currentRole && !membership) {
+      const { data: memberships } = await adminClient
+        .from("tenant_members")
+        .select("tenant_id")
+        .eq("user_id", userId)
+        .limit(1);
+
+      const hasTenant = !!userProfile?.tenant_id || (memberships && memberships.length > 0);
+
+      if (!!currentRole && !hasTenant) {
         console.log("Admin found without tenant, creating default...");
         await createDefaultTenant(adminClient, userId, authUser.email || "Admin");
       }

@@ -1,1 +1,0 @@
-ALTER TABLE public.plans ADD COLUMN checkout_url text DEFAULT '';

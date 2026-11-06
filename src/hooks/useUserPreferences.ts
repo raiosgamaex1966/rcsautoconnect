@@ -23,10 +23,26 @@ const themeMap: Record<string, string> = {
 
 export function useUserPreferences() {
   const { user } = useAuth();
-  const { setTheme } = useTheme();
+  const { theme: activeTheme, setTheme } = useTheme();
+  const currentActiveTheme = (typeof window !== "undefined" ? localStorage.getItem("theme") : null) || activeTheme || "light";
+
   const [preferences, setPreferences] = useState<UserPreferences>(() => {
     const cached = localStorage.getItem("rcs_user_preferences");
-    return cached ? JSON.parse(cached) : defaults;
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        return {
+          theme: parsed.theme || currentActiveTheme,
+          language: parsed.language || "pt-br",
+          ai_default_enabled: parsed.ai_default_enabled ?? true,
+        };
+      } catch {}
+    }
+    return {
+      theme: currentActiveTheme,
+      language: "pt-br",
+      ai_default_enabled: true,
+    };
   });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -39,21 +55,19 @@ export function useUserPreferences() {
         body: { _action: "user-preferences-get" },
       });
 
-      if (!error && data?.success) {
-        const d = data.data || {};
+      if (!error && data?.success && data.data) {
+        const d = data.data;
+        const currentLocalTheme = localStorage.getItem("theme") || activeTheme || "light";
         const prefs = {
-          theme: d.theme || defaults.theme,
-          language: d.language || defaults.language,
-          ai_default_enabled: d.ai_default_enabled ?? defaults.ai_default_enabled,
+          theme: d.theme || currentLocalTheme,
+          language: d.language || "pt-br",
+          ai_default_enabled: d.ai_default_enabled ?? true,
         };
         setPreferences(prefs);
         localStorage.setItem("rcs_user_preferences", JSON.stringify(prefs));
-        setTheme(themeMap[prefs.theme] || "dark");
-      } else {
-        // Fallback to defaults or cache if error
-        const cached = localStorage.getItem("rcs_user_preferences");
-        if (cached) setTheme(themeMap[JSON.parse(cached).theme] || "dark");
-        else setTheme("dark");
+        if (d.theme && themeMap[d.theme]) {
+          setTheme(themeMap[d.theme]);
+        }
       }
       setLoading(false);
     };

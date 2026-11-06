@@ -62,13 +62,26 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-    const { data: membership } = await adminClient
-      .from("tenant_members")
-      .select("tenant_id, role")
+    // 1. Get tenant from profile
+    const { data: userProfile } = await adminClient
+      .from("profiles")
+      .select("tenant_id")
       .eq("user_id", auth.userId)
       .maybeSingle();
 
-    let tenantId = membership?.tenant_id;
+    let tenantId = userProfile?.tenant_id;
+
+    // 2. Fallback to tenant_members
+    const { data: memberships } = await adminClient
+      .from("tenant_members")
+      .select("tenant_id, role")
+      .eq("user_id", auth.userId)
+      .limit(1);
+
+    const membership = memberships?.[0];
+    if (!tenantId) {
+      tenantId = membership?.tenant_id;
+    }
     
     // Check global admin as well
     const { data: globalAdmin } = await adminClient

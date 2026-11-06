@@ -56,6 +56,8 @@ Thumbs.db
 .cache/
 scratch/
 test-evo.ts
+backup_23_abril/
+vite.config.ts.timestamp*
 
 # Sensitive files (auto-detected)
 .env
