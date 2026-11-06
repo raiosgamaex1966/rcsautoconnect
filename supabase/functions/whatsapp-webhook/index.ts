@@ -469,6 +469,14 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
             });
             if (schedErr) throw schedErr;
           }
+              scheduled_at: finalDate,
+              duration_minutes: parseInt(duration) || 30,
+              status: "pending",
+              created_by: admin.user_id,
+              description: `Agendado automaticamente pela IA - Telefone: ${phone}`
+            });
+            if (schedErr) throw schedErr;
+          }
           console.log("[AI] Schedule operation successful");
         } catch (err: any) {
           console.error("[AI] Schedule Exception:", err);
