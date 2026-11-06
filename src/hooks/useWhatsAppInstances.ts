@@ -108,20 +108,43 @@ export function useWhatsAppInstances() {
   }, [fetchInstances]);
 
   const deleteInstance = useCallback(async (instanceId: string) => {
-    setInstances(prev => {
-      const updated = prev.filter(i => i.id !== instanceId);
-      localStorage.setItem("rcs_whatsapp_instances", JSON.stringify(updated));
-      return updated;
-    });
-    const { data, error } = await supabase.functions.invoke("whatsapp-instances", {
-      body: { _action: "delete", instance_id: instanceId },
-    });
-    if (error || !data?.success) {
-      toast.error(data?.error || "Erro ao excluir");
-      return;
+    try {
+      // 1. Aciona Edge function para remover da Evolution API
+      await supabase.functions.invoke("whatsapp-instances", {
+        body: { _action: "delete", instance_id: instanceId },
+      }).catch(e => console.warn("Edge function delete call:", e));
+
+      // 2. Desvincula dependências no Supabase para não travar por Foreign Key
+      await supabase.from("conversations").update({ instance_id: null }).eq("instance_id", instanceId);
+      await supabase.from("instance_settings").delete().eq("instance_id", instanceId);
+
+      // 3. Deleta a instância diretamente da tabela no Supabase
+      const { error: dbError } = await supabase
+        .from("whatsapp_instances")
+        .delete()
+        .eq("id", instanceId);
+
+      if (dbError) {
+        console.error("Erro ao deletar instância no banco:", dbError);
+        toast.error("Erro ao excluir no banco: " + dbError.message);
+        await fetchInstances();
+        return;
+      }
+
+      // 4. Atualiza estado local e cache
+      setInstances(prev => {
+        const updated = prev.filter(i => i.id !== instanceId);
+        localStorage.setItem("rcs_whatsapp_instances", JSON.stringify(updated));
+        return updated;
+      });
+
+      toast.success("Instância excluída com sucesso");
+      await fetchInstances();
+    } catch (err: any) {
+      console.error("Delete exception:", err);
+      toast.error(err.message || "Erro inesperado ao excluir");
+      await fetchInstances();
     }
-    toast.success("Instância excluída");
-    await fetchInstances();
   }, [fetchInstances]);
 
   const checkInstanceStatus = useCallback(async (instanceId: string) => {
