@@ -926,11 +926,12 @@ serve(async (req) => {
     if (action === "dashboard-setup-check") {
       const { tenantId, error } = await verifyTenant();
       if (error) return error;
-      const [instRes, profileRes, docsRes, aiRes] = await Promise.all([
+      const [instRes, profileRes, docsRes, aiRes, prodRes] = await Promise.all([
         adminClient.from("whatsapp_instances").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("status", "connected"),
         adminClient.from("profiles").select("company").eq("user_id", user.id).maybeSingle(),
         adminClient.from("kb_documents").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
         adminClient.from("ai_settings").select("general_instructions, business_type").eq("tenant_id", tenantId).maybeSingle(),
+        adminClient.from("products").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
       ]);
       return jsonResponse({
         success: true, data: {
@@ -938,6 +939,7 @@ serve(async (req) => {
           business: !!(profileRes.data?.company?.trim()),
           document: (docsRes.count || 0) > 0,
           ai: !!(aiRes.data?.general_instructions?.trim() || aiRes.data?.business_type?.trim()),
+          products: (prodRes.count || 0) > 0,
         },
       });
     }

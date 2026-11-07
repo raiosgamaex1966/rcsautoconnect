@@ -18,6 +18,7 @@ import {
   Crown,
   HardDrive,
   Zap,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -82,24 +83,35 @@ export default function Dashboard() {
     { key: "business", label: t.dashboard.setupSteps.business.label, action: t.dashboard.setupSteps.business.action, path: "/configuracoes" },
     { key: "document", label: t.dashboard.setupSteps.document.label, action: t.dashboard.setupSteps.document.action, path: "/configuracoes" },
     { key: "ai", label: t.dashboard.setupSteps.ai.label, action: t.dashboard.setupSteps.ai.action, path: "/configuracoes" },
+    { key: "products", label: (t.dashboard.setupSteps as any).products?.label || "Cadastrar produtos", action: (t.dashboard.setupSteps as any).products?.action || "Cadastrar", path: "/produtos" },
   ];
 
   // Dynamic setup checklist
+  const [loadingSetup, setLoadingSetup] = useState(true);
+  const [setupDismissed, setSetupDismissed] = useState(() => {
+    return localStorage.getItem("rcs_setup_checklist_dismissed") === "true";
+  });
   const [setupDone, setSetupDone] = useState<Record<string, boolean>>({
-    whatsapp: false, business: false, document: false, ai: false,
+    whatsapp: false, business: false, document: false, ai: false, products: false,
   });
 
   useEffect(() => {
     if (!user) return;
     const checkSetup = async () => {
-      const { data, error } = await supabase.functions.invoke("data-api", {
-        body: { _action: "dashboard-setup-check" },
-      });
-      if (!error && data?.success) {
-        setSetupDone(data.data);
-      } else {
-        console.error("Setup check error:", error, data);
-        if (data?.error) toast.error("Setup Check Error: " + data.error);
+      setLoadingSetup(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("data-api", {
+          body: { _action: "dashboard-setup-check" },
+        });
+        if (!error && data?.success) {
+          setSetupDone(data.data);
+        } else {
+          console.error("Setup check error:", error, data);
+        }
+      } catch (err) {
+        console.error("Setup check error:", err);
+      } finally {
+        setLoadingSetup(false);
       }
     };
     checkSetup();
@@ -107,6 +119,7 @@ export default function Dashboard() {
 
   const completedSteps = Object.values(setupDone).filter(Boolean).length;
   const totalSteps = setupStepsDef.length;
+  const isAllCompleted = completedSteps === totalSteps;
 
   const displayName = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
 
@@ -269,50 +282,125 @@ export default function Dashboard() {
       )}
 
       {/* Setup Card */}
-      {completedSteps < totalSteps && (
-        <div>
-            <Card>
+      {!loadingSetup && (
+        <>
+          {setupDismissed && isAllCompleted ? (
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  localStorage.removeItem("rcs_setup_checklist_dismissed");
+                  setSetupDismissed(false);
+                }}
+                className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5 py-1 px-2.5 rounded-md hover:bg-muted/50 border border-transparent hover:border-border/60"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                <span>
+                  {t.dashboard.showChecklist || "Ver etapas de configuração"} ({completedSteps}/{totalSteps})
+                </span>
+              </button>
+            </div>
+          ) : (
+            <Card className={isAllCompleted ? "border-emerald-500/30 bg-emerald-500/5 relative" : "relative"}>
               <CardContent className="pt-4 sm:pt-6">
-                <div className="text-center mb-3 sm:mb-4">
-                  <CheckCircle2 className="h-8 w-8 sm:h-10 sm:w-10 text-primary mx-auto mb-2" />
-                  <h3 className="font-semibold text-sm sm:text-base">{t.dashboard.completeSetup}</h3>
-                  <p className="text-xs sm:text-sm text-muted-foreground">
-                    {t.dashboard.completeSetupDesc}
+                <button
+                  onClick={() => {
+                    localStorage.setItem("rcs_setup_checklist_dismissed", "true");
+                    setSetupDismissed(true);
+                  }}
+                  className="absolute top-3 right-3 text-muted-foreground hover:text-foreground p-1 rounded-md transition-colors"
+                  title={t.dashboard.hideChecklist || "Ocultar aviso"}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+
+                <div className="text-center mb-3 sm:mb-4 pr-6 pl-6">
+                  <CheckCircle2
+                    className={`h-8 w-8 sm:h-10 sm:w-10 mx-auto mb-2 ${
+                      isAllCompleted ? "text-emerald-500" : "text-primary"
+                    }`}
+                  />
+                  <h3 className="font-semibold text-sm sm:text-base">
+                    {isAllCompleted
+                      ? (t.dashboard.setupCompleted || "Configuração 100% Concluída! 🎉")
+                      : t.dashboard.completeSetup}
+                  </h3>
+                  <p className="text-xs sm:text-sm text-muted-foreground max-w-lg mx-auto">
+                    {isAllCompleted
+                      ? (t.dashboard.setupCompletedDesc || "Parabéns! Todos os passos iniciais foram concluídos com sucesso. Seu assistente já está pronto para atender no WhatsApp.")
+                      : t.dashboard.completeSetupDesc}
                   </p>
                 </div>
+
                 <div className="flex items-center gap-3 mb-3 sm:mb-4">
-                  <span className="bg-primary text-primary-foreground text-xs px-2 py-0.5 rounded-full font-bold">
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                      isAllCompleted
+                        ? "bg-emerald-600 text-white"
+                        : "bg-primary text-primary-foreground"
+                    }`}
+                  >
                     {completedSteps}/{totalSteps}
                   </span>
-                  <Progress value={(completedSteps / totalSteps) * 100} className="flex-1" />
+                  <Progress
+                    value={(completedSteps / totalSteps) * 100}
+                    className="flex-1"
+                  />
                 </div>
+
                 <div className="space-y-2 sm:space-y-3">
-                  {setupStepsDef.map((step) => (
-                    <div
-                      key={step.key}
-                      className="flex items-center justify-between py-1.5 sm:py-2"
-                      style={{ opacity: setupDone[step.key] ? 0.6 : 1, transform: setupDone[step.key] ? "scale(0.98)" : "scale(1)" }}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CheckCircle2
-                          className={`h-4 w-4 shrink-0 ${setupDone[step.key] ? "text-primary" : "text-muted-foreground"}`}
-                        />
-                        <span className={`text-xs sm:text-sm truncate ${setupDone[step.key] ? "line-through text-muted-foreground" : ""}`}>{step.label}</span>
+                  {setupStepsDef.map((step) => {
+                    const isDone = !!setupDone[step.key];
+                    return (
+                      <div
+                        key={step.key}
+                        className="flex items-center justify-between py-1.5 sm:py-2"
+                        style={{
+                          opacity: isDone ? 0.7 : 1,
+                          transform: isDone ? "scale(0.99)" : "scale(1)",
+                        }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CheckCircle2
+                            className={`h-4 w-4 shrink-0 ${
+                              isDone ? "text-emerald-500" : "text-muted-foreground"
+                            }`}
+                          />
+                          <span
+                            className={`text-xs sm:text-sm truncate ${
+                              isDone ? "line-through text-muted-foreground" : "font-medium"
+                            }`}
+                          >
+                            {step.label}
+                          </span>
+                        </div>
+                        {!isDone && (
+                          <button
+                            className="text-xs sm:text-sm text-primary hover:underline flex items-center gap-1 shrink-0 ml-2 font-medium"
+                            onClick={() => navigate(step.path)}
+                          >
+                            {step.action} <ChevronRight className="h-3 w-3" />
+                          </button>
+                        )}
                       </div>
-                      {!setupDone[step.key] && (
-                        <button
-                          className="text-xs sm:text-sm text-primary hover:underline flex items-center gap-1 shrink-0 ml-2"
-                          onClick={() => navigate(step.path)}
-                        >
-                          {step.action} <ChevronRight className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
+                </div>
+
+                <div className="mt-3 pt-2 border-t border-border/40 flex justify-end">
+                  <button
+                    onClick={() => {
+                      localStorage.setItem("rcs_setup_checklist_dismissed", "true");
+                      setSetupDismissed(true);
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    {t.dashboard.hideChecklist || "Ocultar aviso"}
+                  </button>
                 </div>
               </CardContent>
             </Card>
-        </div>
+          )}
+        </>
       )}
 
       {/* AI Toggle */}
