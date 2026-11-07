@@ -936,6 +936,71 @@ export type Database = {
           },
         ]
       }
+      products: {
+        Row: {
+          active: boolean
+          additional_images: Json | null
+          category: string | null
+          checkout_url: string | null
+          created_at: string
+          description: string | null
+          id: string
+          image_url: string | null
+          name: string
+          price_cents: number
+          promotional_price_cents: number | null
+          stock: number | null
+          tenant_id: string
+          updated_at: string
+          video_type: string | null
+          video_url: string | null
+        }
+        Insert: {
+          active?: boolean
+          additional_images?: Json | null
+          category?: string | null
+          checkout_url?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          name: string
+          price_cents?: number
+          promotional_price_cents?: number | null
+          stock?: number | null
+          tenant_id: string
+          updated_at?: string
+          video_type?: string | null
+          video_url?: string | null
+        }
+        Update: {
+          active?: boolean
+          additional_images?: Json | null
+          category?: string | null
+          checkout_url?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          image_url?: string | null
+          name?: string
+          price_cents?: number
+          promotional_price_cents?: number | null
+          stock?: number | null
+          tenant_id?: string
+          updated_at?: string
+          video_type?: string | null
+          video_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "products_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       services: {
         Row: {
           active: boolean

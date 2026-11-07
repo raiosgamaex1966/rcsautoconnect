@@ -218,6 +218,11 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       .eq("tenant_id", tenantId)
       .eq("active", true);
 
+    const { data: products } = await db.from("products")
+      .select("name, description, price_cents, promotional_price_cents, category, video_url, checkout_url, stock")
+      .eq("tenant_id", tenantId)
+      .eq("active", true);
+
     // Carrega horários de funcionamento, datas bloqueadas e agendamentos existentes
     const { data: businessHours } = await db.from("business_hours")
       .select("day_of_week, open_time, close_time, is_open")
@@ -260,6 +265,20 @@ async function aiRespond(tenantId: string, convId: string, instanceName: string,
       ).join("\n");
     } else {
       sys += "\n\nNOSSOS SERVIÇOS: Atendimento Geral (Duração: 30 minutos).\n";
+    }
+
+    if (products?.length) {
+      sys += "\n\nCATÁLOGO DE PRODUTOS DISPONÍVEIS:\n" + products.map((p: any) => {
+        const regularPrice = `R$ ${(p.price_cents / 100).toFixed(2).replace(".", ",")}`;
+        const promoPrice = p.promotional_price_cents ? ` (Promoção especial: R$ ${(p.promotional_price_cents / 100).toFixed(2).replace(".", ",")})` : "";
+        let details = `- ${p.name}: ${p.description || ""} | Preço: ${regularPrice}${promoPrice}`;
+        if (p.category) details += ` | Categoria: ${p.category}`;
+        if (p.stock !== null && p.stock !== undefined) details += ` | Estoque: ${p.stock}`;
+        if (p.checkout_url) details += ` | Link para comprar: ${p.checkout_url}`;
+        if (p.video_url) details += ` | Vídeo demonstrativo: ${p.video_url}`;
+        return details;
+      }).join("\n");
+      sys += "\n\nDIRETRIZES DE VENDAS DE PRODUTOS:\n- Sempre que o cliente perguntar sobre produtos, preços ou demonstrar interesse em comprar algo, apresente as opções com clareza e entusiasmo.\n- Forneça o link de compra/checkout para que o cliente possa concluir a compra facilmente.\n- Se houver vídeo demonstrativo cadastrado, informe e envie o link para o cliente assistir!\n";
     }
 
     if (businessHours?.length) {

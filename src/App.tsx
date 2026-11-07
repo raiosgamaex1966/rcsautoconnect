@@ -20,6 +20,7 @@ import Dashboard from "./pages/Dashboard";
 import Conversas from "./pages/Conversas";
 import Contatos from "./pages/Contatos";
 import WhatsAppPage from "./pages/WhatsAppPage";
+import Produtos from "./pages/Produtos";
 import Agendamentos from "./pages/Agendamentos";
 import Configuracoes from "./pages/Configuracoes";
 import Planos from "./pages/Planos";
@@ -70,6 +71,7 @@ const App = () => {
                   <Route path="/kanban" element={<Kanban />} />
                   <Route path="/contatos" element={<Contatos />} />
                   <Route path="/whatsapp" element={<WhatsAppPage />} />
+                  <Route path="/produtos" element={<Produtos />} />
                   <Route path="/agendamentos" element={<Agendamentos />} />
                   <Route path="/configuracoes" element={<Configuracoes />} />
                   <Route path="/equipe" element={<Equipe />} />

@@ -28,6 +28,7 @@ import {
   AlertTriangle,
   Kanban,
   Zap,
+  Package,
 } from "lucide-react";
 import {
   Sidebar,
@@ -136,6 +137,7 @@ export function AppSidebar() {
     { title: "Kanban", icon: Kanban, path: "/kanban" },
     { title: t.sidebar.contacts, icon: Users, path: "/contatos" },
     { title: t.sidebar.whatsapp, icon: Smartphone, path: "/whatsapp" },
+    { title: t.sidebar.products, icon: Package, path: "/produtos" },
     { title: t.sidebar.schedules, icon: CalendarDays, path: "/agendamentos" },
     { title: t.sidebar.settings, icon: Settings, path: "/configuracoes" },
     { title: t.sidebar.team, icon: Users, path: "/equipe" },

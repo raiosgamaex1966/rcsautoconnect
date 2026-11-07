@@ -5,6 +5,7 @@ export default {
     conversations: "Conversations",
     contacts: "Contacts",
     whatsapp: "WhatsApp",
+    products: "Products",
     schedules: "Schedules",
     settings: "Settings",
     plans: "Plans",
